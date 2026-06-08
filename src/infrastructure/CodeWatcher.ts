@@ -50,18 +50,27 @@ export class CodeWatcher implements vscode.Disposable {
   private async handleDocumentSave(
     document: vscode.TextDocument,
   ): Promise<void> {
-    const supportedLanguages = [
-      'html',
-      'vue',
-      'javascriptreact',
-      'typescriptreact',
-    ];
+    const supportedLanguages = ['html', 'vue'];
     if (!supportedLanguages.includes(document.languageId)) {
       return;
     }
 
-    const fileText = document.getText();
+    let fileText = document.getText();
     const fileName = document.fileName.split('/').pop() || 'unknown';
+
+    // If it's a Vue component, cut out the insides of the <template>
+    if (document.languageId === 'vue') {
+      const templateRegex = /<template[^>]*>(.*?)<\/template>/s;
+      const match = fileText.match(templateRegex);
+
+      const templateContent = match && match[1] ? match[1] : '';
+
+      if (!templateContent.trim()) {
+        return;
+      }
+
+      fileText = templateContent;
+    }
 
     if (this.worker) {
       this.worker.postMessage({ sourceCode: fileText, fileName });
