@@ -16,8 +16,8 @@
   "contributes": {
     "commands": [
       {
-        "command": "vsc-accessibility-gamifier.helloWorld",
-        "title": "Hello World"
+        "command": "vsc-accessibility-gamifier.openMoleHome",
+        "title": "Mole Helper: Open A Hole (Interface)"
       }
     ]
   },
