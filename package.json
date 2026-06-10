@@ -16,8 +16,9 @@
   "contributes": {
     "commands": [
       {
-        "command": "vsc-accessibility-gamifier.openMoleHome",
-        "title": "Mole Helper: Open A Hole (Interface)"
+        "command": "vsc-accessibility-gamifier.openBurrow",
+        "title": "Mole's Burrow: Open Burrow",
+        "category": "Accessibility Gamifier"
       }
     ]
   },

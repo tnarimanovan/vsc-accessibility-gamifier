@@ -1,56 +1,131 @@
 import * as vscode from 'vscode';
-import { CodeWatcher } from './infrastructure/CodeWatcher';
+import { GamificationEngine } from './core/GamificationEngine';
 import { MoleWebviewPanel } from './presentation/MoleWebviewPanel';
-import { MoleFood } from './shared/types';
+import { CodeWatcher } from './infrastructure/CodeWatcher';
+import { GameState } from './shared/types';
+
+const STORAGE_KEY = 'vsc-accessibility-gamifier.state';
 
 export function activate(context: vscode.ExtensionContext) {
-  console.log(
-    'Congratulations, your extension "vsc-accessibility-gamifier" is now active!',
-  );
-
   let activePanel: MoleWebviewPanel | undefined = undefined;
+  let hungerInterval: NodeJS.Timeout | undefined = undefined;
 
-  const onAnalysisComplete = (food: MoleFood) => {
-    console.log('Food received in extension.ts:', food);
+  // 1. PERSISTENCE STORAGE LAYER: Recover saved state from VS Code storage engine
+  const savedStateJson = context.globalState.get<string>(STORAGE_KEY);
+  let restoredState: GameState | undefined = undefined;
 
-    if (!food.isEdible) {
-      vscode.window.showWarningMessage(
-        `The mole is sad. В ${food.fileName} availability errors found: ${food.errorCount}`,
+  if (savedStateJson) {
+    try {
+      restoredState = JSON.parse(savedStateJson);
+    } catch (e) {
+      console.error(
+        'Main state corrupted, attempting critical backup recovery protocol...',
+        e,
       );
-    }
 
-    if (activePanel) {
-      console.log('Sending message to active webview panel...');
-      activePanel.updateGameState({
-        level: 4,
-        stage: 2,
-        xp: 45,
-        neededXp: 100,
-        satiety: 75,
-        fileName: food.fileName,
-        errorCount: food.errorCount,
-      });
-    } else {
-      console.log('Webview panel is NOT open right now.');
-    }
-  };
-
-  const codeWatcher = new CodeWatcher(context, onAnalysisComplete);
-  context.subscriptions.push(codeWatcher);
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      'vsc-accessibility-gamifier.openMoleHome',
-      () => {
-        if (activePanel) {
-          activePanel.reveal();
-        } else {
-          activePanel = MoleWebviewPanel.create(context.extensionUri, () => {
-            activePanel = undefined;
-          });
+      // CRITICAL FALLBACK: Try to rescue the Mole from the immutable backup key
+      const backupStateJson = context.globalState.get<string>(
+        STORAGE_KEY + '.backup',
+      );
+      if (backupStateJson) {
+        try {
+          restoredState = JSON.parse(backupStateJson);
+          vscode.window.showWarningMessage(
+            'Mole progress file was corrupted, but we successfully restored your level from a backup!',
+          );
+        } catch (backupErr) {
+          console.error(
+            'Critical failure: Backup storage layer is also corrupted:',
+            backupErr,
+          );
+          vscode.window.showErrorMessage(
+            'Critical anomaly: All Mole burrow save files are corrupted.',
+          );
         }
-      },
-    ),
+      }
+    }
+  }
+
+  // 2. ENGINE COUPLING: Instantiate the engine with recovered state
+  const engine = new GamificationEngine(
+    restoredState,
+    (updatedState, eventType) => {
+      context.globalState.update(STORAGE_KEY, JSON.stringify(updatedState));
+      // IRONCLAD PROTECTION: Create a hard backup snapshot specifically on milestones
+      if (eventType === 'LEVEL_UP') {
+        context.globalState.update(
+          STORAGE_KEY + '.backup',
+          JSON.stringify(updatedState),
+        );
+      }
+
+      if (activePanel) {
+        activePanel.updateGameState(updatedState);
+      }
+
+      handleEngineNotifications(updatedState, eventType);
+    },
   );
+
+  // 3. INFRASTRUCTURE PIPELINE: Connect the real CodeWatcher to the Engine
+  // It intercepts file saves and feeds real analytics straight to our game loop
+  const watcher = new CodeWatcher(
+    context,
+    (fileName, errorCount, fixedFoodType) => {
+      engine.processCodeAnalysis(fileName, errorCount, fixedFoodType);
+    },
+  );
+
+  // 4. TIMER PIPELINE: Instantiate hunger ticker interval (fires every 5 minutes)
+  const FIVE_MINUTES_MS = 5 * 60 * 1000;
+  hungerInterval = setInterval(() => {
+    engine.handleHungerTicker();
+  }, FIVE_MINUTES_MS);
+
+  // Register command to manually reveal the Mole's Burrow panel view
+  const openBurrowCommand = vscode.commands.registerCommand(
+    'vsc-accessibility-gamifier.openBurrow',
+    () => {
+      if (activePanel) {
+        activePanel.reveal();
+      } else {
+        activePanel = MoleWebviewPanel.create(context.extensionUri, () => {
+          activePanel = undefined;
+        });
+        activePanel.updateGameState(engine.state);
+      }
+    },
+  );
+
+  // 5. RESOURCE CLEANUP: Track disposables to prevent memory leaks
+  context.subscriptions.push(openBurrowCommand, watcher);
+
+  context.subscriptions.push({
+    dispose: () => {
+      if (hungerInterval) {
+        clearInterval(hungerInterval);
+      }
+    },
+  });
+}
+
+/**
+ * Orchestrates user facing notification popups based on engine domain events
+ */
+function handleEngineNotifications(state: GameState, eventType: string): void {
+  switch (eventType) {
+    case 'LEVEL_UP':
+      vscode.window.showInformationMessage(
+        `Level Up! Your Mole evolved to Level ${state.level}! Check its new gear!`,
+      );
+      break;
+
+    case 'COMBO_BROKEN':
+      vscode.window.showWarningMessage(
+        `Perfect Run Broken! New accessibility errors were detected in ${state.fileName}. The combo multiplier has reset to x1.0.`,
+      );
+      break;
+  }
 }
 
 export function deactivate() {}
