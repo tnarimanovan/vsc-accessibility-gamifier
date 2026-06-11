@@ -1,6 +1,15 @@
 import * as vscode from 'vscode';
 import { Worker } from 'worker_threads';
-import { MoleFood } from '../shared/types';
+import { FoodType } from '../shared/types';
+
+/**
+ * Defines the structural payload contract emitted from the background Accessibility worker thread
+ */
+export interface WorkerAnalysisResult {
+  fileName: string;
+  errorCount: number;
+  fixedFoodType?: FoodType; // Populated if an accessibility correction rule was successfully applied
+}
 
 export class CodeWatcher implements vscode.Disposable {
   private disposables: vscode.Disposable[] = [];
@@ -8,7 +17,12 @@ export class CodeWatcher implements vscode.Disposable {
 
   constructor(
     private readonly context: vscode.ExtensionContext,
-    private readonly onAnalysisComplete: (result: MoleFood) => void,
+    // Callback updated to emit decoupled analytical primitives straight to the pipeline orchestration layers
+    private readonly onAnalysisComplete: (
+      fileName: string,
+      errorCount: number,
+      fixedFoodType?: FoodType,
+    ) => void,
   ) {
     this.initWorker();
 
@@ -21,6 +35,9 @@ export class CodeWatcher implements vscode.Disposable {
     this.disposables.push(saveListener);
   }
 
+  /**
+   * Initializes background thread execution engine using Node.js Worker Threads
+   */
   private initWorker(): void {
     const workerUri = vscode.Uri.joinPath(
       this.context.extensionUri,
@@ -30,16 +47,24 @@ export class CodeWatcher implements vscode.Disposable {
 
     this.worker = new Worker(workerUri.fsPath);
 
-    this.worker.on('message', (result: MoleFood) => {
-      this.onAnalysisComplete(result);
+    // Listen to typed event triggers transmitted from the sandboxed worker environment
+    this.worker.on('message', (result: WorkerAnalysisResult) => {
+      this.onAnalysisComplete(
+        result.fileName,
+        result.errorCount,
+        result.fixedFoodType,
+      );
     });
 
     this.worker.on('error', (err) => {
-      console.error('Accessibility Worker critical error:', err);
+      console.error('Accessibility Worker critical crash anomaly caught:', err);
       this.relaunchWorker();
     });
   }
 
+  /**
+   * Defensive self-healing pattern. Recovers operational tracking if thread collapses.
+   */
   private relaunchWorker(): void {
     if (this.worker) {
       this.worker.terminate();
@@ -47,6 +72,9 @@ export class CodeWatcher implements vscode.Disposable {
     this.initWorker();
   }
 
+  /**
+   * Intercepts workspace save callbacks, parses out target text payloads, and sends tasks to the worker thread
+   */
   private async handleDocumentSave(
     document: vscode.TextDocument,
   ): Promise<void> {
@@ -56,13 +84,13 @@ export class CodeWatcher implements vscode.Disposable {
     }
 
     let fileText = document.getText();
-    const fileName = document.fileName.split('/').pop() || 'unknown';
+    // Cross-platform safe filename separation mechanism
+    const fileName = document.fileName.split(/[\\/]/).pop() || 'unknown';
 
-    // If it's a Vue component, cut out the insides of the <template>
+    // If it's a Vue SFC component, cleanly isolate the raw inside contents of the <template> node
     if (document.languageId === 'vue') {
       const templateRegex = /<template[^>]*>(.*?)<\/template>/s;
       const match = fileText.match(templateRegex);
-
       const templateContent = match && match[1] ? match[1] : '';
 
       if (!templateContent.trim()) {
@@ -73,10 +101,14 @@ export class CodeWatcher implements vscode.Disposable {
     }
 
     if (this.worker) {
+      // Offload processing intensive HTML parsing operations to the auxiliary thread
       this.worker.postMessage({ sourceCode: fileText, fileName });
     }
   }
 
+  /**
+   * Clean resources allocation hooks to guarantee memory optimization on extension shutdown
+   */
   public dispose(): void {
     this.disposables.forEach((d) => d.dispose());
     if (this.worker) {

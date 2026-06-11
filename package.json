@@ -16,8 +16,9 @@
   "contributes": {
     "commands": [
       {
-        "command": "vsc-accessibility-gamifier.helloWorld",
-        "title": "Hello World"
+        "command": "vsc-accessibility-gamifier.openBurrow",
+        "title": "Mole's Burrow: Open Burrow",
+        "category": "Accessibility Gamifier"
       }
     ]
   },
