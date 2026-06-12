@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { GamificationEngine } from './core/GamificationEngine';
 import { MoleWebviewPanel } from './presentation/MoleWebviewPanel';
+import { MoleStatusBar } from './presentation/MoleStatusBar';
 import { CodeWatcher } from './infrastructure/CodeWatcher';
 import { GameState } from './shared/types';
 
@@ -9,6 +10,7 @@ const STORAGE_KEY = 'vsc-accessibility-gamifier.state';
 export function activate(context: vscode.ExtensionContext) {
   let activePanel: MoleWebviewPanel | undefined = undefined;
   let hungerInterval: NodeJS.Timeout | undefined = undefined;
+  const statusBar = new MoleStatusBar();
 
   // 1. PERSISTENCE STORAGE LAYER: Recover saved state from VS Code storage engine
   const savedStateJson = context.globalState.get<string>(STORAGE_KEY);
@@ -51,6 +53,7 @@ export function activate(context: vscode.ExtensionContext) {
     restoredState,
     (updatedState, eventType) => {
       context.globalState.update(STORAGE_KEY, JSON.stringify(updatedState));
+      statusBar.update(updatedState);
       // IRONCLAD PROTECTION: Create a hard backup snapshot specifically on milestones
       if (eventType === 'LEVEL_UP') {
         context.globalState.update(
@@ -99,7 +102,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // 5. RESOURCE CLEANUP: Track disposables to prevent memory leaks
   context.subscriptions.push(openBurrowCommand, watcher);
-
+  context.subscriptions.push(openBurrowCommand, watcher, statusBar);
   context.subscriptions.push({
     dispose: () => {
       if (hungerInterval) {
@@ -107,6 +110,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     },
   });
+  statusBar.update(engine.state);
 }
 
 /**
