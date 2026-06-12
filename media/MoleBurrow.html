@@ -240,57 +240,54 @@
                 nodes.satietyBar.setAttribute('aria-valuenow', satiety);
 
                 // 4. Asset Pipeline & Accessibility Alt mappings
-                if (window.MOLE_IMAGES) {
+                if (window.MOLE_ASSETS && window.MOLE_ASSETS[state.stage]) {
+                    let assetKey = 'bored';
+                    let altDesc = 'Your Mole companion rests peacefully in a clean, accessible burrow.';
+                    let terminalHtml = '';
+
                     if (state.errorCount > 0) {
-                        let assetKey = 'thinking';
-                        let altDesc = `Your Mole companion looking confused because ${state.errorCount} accessibility bugs were detected.`;
-                        let terminalHtml = `
-                            <span class="mole-terminal__line"><span class="mole-terminal__line--prefix">mole@burrow:~$</span> err --file ${state.fileName}</span>
-                            <span class="mole-terminal__line" style="color: #ffaa00;">> [WARNING] ${state.errorCount} bugs left. Mole is contemplating...</span>
-                        `;
+                        assetKey = 'thinking';
+                        altDesc = `Your Mole companion looking confused because ${state.errorCount} accessibility bugs were detected.`;
+                        terminalHtml = `
+                                <span class="mole-terminal__line"><span class="mole-terminal__line--prefix">mole@burrow:~$</span> err --file ${state.fileName}</span>
+                                <span class="mole-terminal__line" style="color: #ffaa00;">> [WARNING] ${state.errorCount} bugs left. Mole is contemplating...</span>
+                            `;
 
                         if (state.errorCount < previousErrorCount) {
                             assetKey = 'digging';
                             altDesc = `Your Mole companion is digging intensely, helping you clear out the remaining ${state.errorCount} bugs.`;
                             terminalHtml = `
-                                <span class="mole-terminal__line"><span class="mole-terminal__line--prefix">mole@burrow:~$</span> progress --fix</span>
-                                <span class="mole-terminal__line mole-terminal__line--success">> [DIGGING] Keep going! Errors decreased to ${state.errorCount}.</span>
-                            `;
+                                    <span class="mole-terminal__line"><span class="mole-terminal__line--prefix">mole@burrow:~$</span> progress --fix</span>
+                                    <span class="mole-terminal__line mole-terminal__line--success">> [DIGGING] Keep going! Errors decreased to ${state.errorCount}.</span>
+                                `;
                         }
                         else if (state.errorCount >= 3) {
                             assetKey = 'handsUp';
                             altDesc = `Your Mole companion threw its hands up in despair due to ${state.errorCount} critical accessibility errors.`;
                             terminalHtml = `
-                                <span class="mole-terminal__line"><span class="mole-terminal__line--prefix">mole@burrow:~$</span> err --file ${state.fileName}</span>
-                                <span class="mole-terminal__line mole-terminal__line--error">> [CRITICAL] Found ${state.errorCount} accessibility violations.</span>
-                                <span class="mole-terminal__line" style="color: var(--mb-descr);">> Refusing to digest dirty markup.</span>
-                            `;
+                                    <span class="mole-terminal__line"><span class="mole-terminal__line--prefix">mole@burrow:~$</span> err --file ${state.fileName}</span>
+                                    <span class="mole-terminal__line mole-terminal__line--error">> [CRITICAL] Found ${state.errorCount} accessibility violations.</span>
+                                    <span class="mole-terminal__line" style="color: var(--mb-descr);">> Refusing to digest dirty markup.</span>
+                                `;
                         }
-
-                        nodes.avatar.src = window.MOLE_IMAGES[assetKey] || window.MOLE_IMAGES.bored;
-                        nodes.avatar.alt = altDesc;
-                        nodes.terminal.innerHTML = terminalHtml;
                     } else {
-                        // Success Matrix matching evolution rules
-                        let assetKey = 'bored'; 
-                        let altDesc = 'Your Mole companion rests peacefully in a clean, accessible burrow.';
-
-                        if (state.stage >= 3) {
-                            assetKey = 'outsideHappy'; 
-                            altDesc = 'Your experienced Senior Mole proudly wearing an engineer helmet and holding a flashlight.';
-                        } else if (state.stage === 2) {
-                            assetKey = 'outsideHelmet'; 
-                            altDesc = 'Your Junior Mole developer wearing a hard hat, happy with your code changes.';
-                        }
-
-                        nodes.avatar.src = window.MOLE_IMAGES[assetKey] || window.MOLE_IMAGES.bored;
-                        nodes.avatar.alt = altDesc;
-
-                        nodes.terminal.innerHTML = `
-                        <span class="mole-terminal__line"><span class="mole-terminal__line--prefix">mole@burrow:~$</span> test --file ${state.fileName}</span>
-                        <span class="mole-terminal__line mole-metric__bar--xp mole-terminal__line--success">> [SUCCESS] 100% WCAG criteria met. Code is fully edible!</span>
-                        `;
+                        // Success Matrix matching evolution rules (bored)
+                        assetKey = 'bored';
+                        altDesc = 'Your Mole companion rests peacefully in a clean, accessible burrow.';
+                        terminalHtml = `
+                                <span class="mole-terminal__line"><span class="mole-terminal__line--prefix">mole@burrow:~$</span> test --file ${state.fileName}</span>
+                                <span class="mole-terminal__line mole-terminal__line--success">> [SUCCESS] 100% WCAG criteria met. Code is fully edible!</span>
+                            `;
                     }
+
+                    const targetStageAssets = window.MOLE_ASSETS[state.stage];
+                    if (targetStageAssets && targetStageAssets[assetKey]) {
+                        nodes.avatar.src = targetStageAssets[assetKey];
+                    }
+
+                    nodes.avatar.alt = altDesc;
+                    nodes.terminal.innerHTML = terminalHtml;
+
                     previousErrorCount = state.errorCount;
                 }
             }
@@ -302,6 +299,8 @@
                     render(message.data);
                 }
             });
+
+            // Initial fallback render pass
             render({
                 level: 1,
                 stage: 1,

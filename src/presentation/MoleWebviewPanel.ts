@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import { MOLE_ASSETS_MAP } from '../shared/moleAssets';
 
 export class MoleWebviewPanel {
   private readonly _panel: vscode.WebviewPanel;
@@ -75,20 +76,24 @@ export class MoleWebviewPanel {
     try {
       let htmlContent = fs.readFileSync(htmlUri.fsPath, 'utf8');
 
-      const imagesSript = `
+      const resolvedAssets: Record<number, Record<string, string>> = {};
+
+      for (const [stage, moods] of Object.entries(MOLE_ASSETS_MAP)) {
+        const stageNum = Number(stage);
+        resolvedAssets[stageNum] = {};
+
+        for (const [mood, fileName] of Object.entries(moods)) {
+          resolvedAssets[stageNum][mood] = mediaUri(fileName);
+        }
+      }
+
+      const imagesScript = `
         <script>
-          window.MOLE_IMAGES = {
-            bored: "${mediaUri('mole-bored.png')}",
-            thinking: "${mediaUri('mole-thinking.png')}",
-            handsUp: "${mediaUri('mole-hands-up.png')}",
-            digging: "${mediaUri('mole-digging.png')}",
-            outsideHelmet: "${mediaUri('mole-outside-helmet.png')}",
-            outsideHappy: "${mediaUri('mole-outside-happy.png')}"
-          };
+          window.MOLE_ASSETS = ${JSON.stringify(resolvedAssets)};
         </script>
       `;
 
-      htmlContent = htmlContent.replace('</head>', `${imagesSript}</head>`);
+      htmlContent = htmlContent.replace('</head>', `${imagesScript}</head>`);
       return htmlContent;
     } catch (error) {
       return `
