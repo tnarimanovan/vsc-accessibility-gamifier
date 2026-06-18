@@ -34,13 +34,17 @@ export class GamificationEngine {
   }
 
   /**
-   * Passive hunger simulation ticker. Decreases satiety by 1 point.
-   * Expected to be called by an external interval timer every 5 minutes.
+   * Smart hunger simulation ticker. Decreases satiety by 1 point.
+   * Driven by active window focus verified via extension lifecycle triggers.
    */
   public handleHungerTicker(): void {
     if (this._state.satiety > 0) {
       this._state.satiety = Math.max(0, this._state.satiety - 1);
-      this._onStateChange(this.state, 'SATIETY_DROP');
+
+      // Emit specialized event if it drops past the healthy baseline
+      const eventType =
+        this._state.satiety < 30 ? 'MOLE_STARVING' : 'SATIETY_DROP';
+      this._onStateChange(this.state, eventType);
     }
   }
 

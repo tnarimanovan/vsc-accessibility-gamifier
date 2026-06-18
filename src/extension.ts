@@ -79,11 +79,30 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
-  // 4. TIMER PIPELINE: Instantiate hunger ticker interval (fires every 5 minutes)
-  const FIVE_MINUTES_MS = 5 * 60 * 1000;
+  // 4. TIMER PIPELINE: Instantiate hunger ticker interval (fires every 10 minutes)
+
+  // Track the native window focus state inside the OS environment
+  let isEditorFocused = true;
+
+  const windowFocusListener = vscode.window.onDidChangeWindowState(
+    (windowState: vscode.WindowState) => {
+      isEditorFocused = windowState.focused;
+    },
+  );
+
+  // Scientifically grounded 10-minute interval execution loop (600,000 milliseconds)
+  // Ensures the Mole changes state softly, requiring check-ins only 1-2 times per full workday
+  const TEN_MINUTES_MS = 10 * 60 * 1000;
+
   hungerInterval = setInterval(() => {
+    // STRICT GUARD CLAUSE: Freeze metabolic depletion if developer is working in browser or somewhere else
+    if (!isEditorFocused) {
+      return;
+    }
+
+    // Trigger decay only during active focus minutes
     engine.handleHungerTicker();
-  }, FIVE_MINUTES_MS);
+  }, TEN_MINUTES_MS);
 
   // Register command to manually reveal the Mole's Burrow panel view
   const openBurrowCommand = vscode.commands.registerCommand(
@@ -101,15 +120,20 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   // 5. RESOURCE CLEANUP: Track disposables to prevent memory leaks
-  context.subscriptions.push(openBurrowCommand, watcher);
-  context.subscriptions.push(openBurrowCommand, watcher, statusBar);
-  context.subscriptions.push({
-    dispose: () => {
-      if (hungerInterval) {
-        clearInterval(hungerInterval);
-      }
+  context.subscriptions.push(
+    openBurrowCommand,
+    watcher,
+    statusBar,
+    windowFocusListener, // Added focus listener wrapper to lifecycle context
+    {
+      dispose: () => {
+        if (hungerInterval) {
+          clearInterval(hungerInterval);
+        }
+      },
     },
-  });
+  );
+
   statusBar.update(engine.state);
 }
 
