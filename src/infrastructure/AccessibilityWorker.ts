@@ -49,6 +49,9 @@ port.on(
     const { sourceCode, fileName } = message;
     let dom: JSDOM | null = null;
 
+    // Track previous cache records to avoid breaking FSM state cycles during crashes
+    const previousViolations = violationCache[fileName] || [];
+
     try {
       const virtualConsole = new VirtualConsole();
       virtualConsole.on('jsdomError', (error) => {
@@ -77,8 +80,6 @@ port.on(
 
       // Map current violations to a clean string array of rule IDs
       const currentViolations = results.violations.map((v: any) => v.id);
-      const previousViolations = violationCache[fileName] || [];
-
       let fixedFoodType: FoodType | undefined = undefined;
 
       // DELTA CHECK MECHANISM: Evaluate if the developer successfully eliminated a bug
@@ -97,21 +98,29 @@ port.on(
       // Sync current snapshot back into the cache register map
       violationCache[fileName] = currentViolations;
 
-      const response: WorkerAnalysisResult = {
+      const response: WorkerAnalysisResult & { isParsingError?: boolean } = {
         fileName,
         errorCount: currentViolations.length,
         fixedFoodType,
+        isParsingError: false,
       };
 
       port.postMessage(response);
     } catch (error) {
-      console.error('Worker runtime parsing crash caught:', error);
+      console.warn(
+        `[Fault-Tolerant Guardian] Broken markup or parsing crash caught for ${fileName}. Overlooking state cycle step.`,
+      );
 
-      const errorResponse: WorkerAnalysisResult = {
-        fileName,
-        errorCount: 1, // Fallback penalty safety net
-        fixedFoodType: undefined,
-      };
+      // FAULT-TOLERANT ESCAPE ROUTE:
+      // Instead of forcing errorCount: 1, mirror the historical cache length.
+      // This ensures errorCount === previousErrors inside GamificationEngine, keeping combo streaks intact.
+      const errorResponse: WorkerAnalysisResult & { isParsingError?: boolean } =
+        {
+          fileName,
+          errorCount: previousViolations.length,
+          fixedFoodType: undefined,
+          isParsingError: true, // Flag to notify extension core to gracefully skip UI re-renders if necessary
+        };
 
       port.postMessage(errorResponse);
     } finally {
