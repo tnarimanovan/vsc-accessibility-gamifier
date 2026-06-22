@@ -261,10 +261,9 @@
                 4: 'Accessibility Architect'
             };
 
-            // Shared analytical UI state parameters
             let previousErrorCount = 0;
             let isHighlightEnabled = true;
-            let currentCachedDiagnostics = null; 
+            let currentCachedDiagnostics = null;
 
             nodes.toggleBtn.addEventListener('click', () => {
                 isHighlightEnabled = !isHighlightEnabled;
@@ -281,10 +280,10 @@
             function updateToggleButtonUI() {
                 if (isHighlightEnabled) {
                     nodes.toggleBtn.classList.add('mole-app__toggle-btn--active');
-                    nodes.toggleBtn.textContent = '👁️ HIGHLIGHTS: ON';
+                    nodes.toggleBtn.textContent = 'HIGHLIGHTS: ON';
                 } else {
                     nodes.toggleBtn.classList.remove('mole-app__toggle-btn--active');
-                    nodes.toggleBtn.textContent = '🙈 HIGHLIGHTS: OFF';
+                    nodes.toggleBtn.textContent = 'HIGHLIGHTS: OFF';
                 }
             }
 
@@ -295,7 +294,7 @@
                 nodes.level.textContent = `Level ${state.level || 1}`;
                 nodes.stage.textContent = STAGE_NAMES[state.stage] || STAGE_NAMES[1];
 
-                // 2. XP Metric Progress Math & ARIA mapping
+                // 2. XP Progress Math
                 const currentXp = state.xp || 0;
                 const maxXp = state.neededXp || 100;
                 const xpPercentage = Math.min(100, (currentXp / maxXp) * 100);
@@ -304,56 +303,54 @@
                 nodes.xpBar.style.width = `${xpPercentage}%`;
                 nodes.xpBar.setAttribute('aria-valuenow', Math.round(xpPercentage));
 
-                // 3. Satiety Progress Math & ARIA mapping
+                // 3. Satiety Progress Math
                 const satiety = state.satiety ?? 100;
                 nodes.satietyText.textContent = `${satiety}%`;
                 nodes.satietyBar.style.width = `${satiety}%`;
                 nodes.satietyBar.setAttribute('aria-valuenow', satiety);
 
-                // 4. Asset Pipeline & Accessibility Alt mappings
-                if (window.MOLE_ASSETS && window.MOLE_ASSETS[state.stage]) {
+                // 4. Asset Pipeline & Terminal Sync (Linked to Professor's MOLE_ASSETS matrix)
+                if (window.MOLE_ASSETS) {
                     let assetKey = 'bored';
                     let altDesc = 'Your Mole companion rests peacefully in a clean, accessible burrow.';
                     let terminalHtml = '';
 
+                    // Step A: Calculate state flags and generate layout context
                     if (state.errorCount > 0) {
                         assetKey = 'thinking';
                         altDesc = `Your Mole companion looking confused because ${state.errorCount} accessibility bugs were detected.`;
                         terminalHtml = `
-                                <span class="mole-terminal__line"><span class="mole-terminal__line--prefix">mole@burrow:~$</span> err --file ${state.fileName}</span>
-                                <span class="mole-terminal__line" style="color: #ffaa00;">> [WARNING] ${state.errorCount} bugs left. Mole is contemplating...</span>
-                            `;
+                            <span class="mole-terminal__line"><span class="mole-terminal__line--prefix">mole@burrow:~$</span> err --file ${state.fileName}</span>
+                            <span class="mole-terminal__line" style="color: #ffaa00;">> [WARNING] ${state.errorCount} bugs left. Mole is contemplating...</span>
+                        `;
 
                         if (state.errorCount < previousErrorCount) {
                             assetKey = 'digging';
                             altDesc = `Your Mole companion is digging intensely, helping you clear out the remaining ${state.errorCount} bugs.`;
                             terminalHtml = `
-                                    <span class="mole-terminal__line"><span class="mole-terminal__line--prefix">mole@burrow:~$</span> progress --fix</span>
-                                    <span class="mole-terminal__line mole-terminal__line--success">> [DIGGING] Keep going! Errors decreased to ${state.errorCount}.</span>
-                                `;
+                                <span class="mole-terminal__line"><span class="mole-terminal__line--prefix">mole@burrow:~$</span> progress --fix</span>
+                                <span class="mole-terminal__line mole-terminal__line--success">> [DIGGING] Keep going! Errors decreased to ${state.errorCount}.</span>
+                            `;
                         }
                         else if (state.errorCount >= 3) {
                             assetKey = 'handsUp';
                             altDesc = `Your Mole companion threw its hands up in despair due to ${state.errorCount} critical accessibility errors.`;
                             terminalHtml = `
-                                    <span class="mole-terminal__line"><span class="mole-terminal__line--prefix">mole@burrow:~$</span> err --file ${state.fileName}</span>
-                                    <span class="mole-terminal__line mole-terminal__line--error">> [CRITICAL] Found ${state.errorCount} accessibility violations.</span>
-                                    <span class="mole-terminal__line" style="color: var(--mb-descr);">> Refusing to digest dirty markup.</span>
-                                `;
+                                <span class="mole-terminal__line"><span class="mole-terminal__line--prefix">mole@burrow:~$</span> err --file ${state.fileName}</span>
+                                <span class="mole-terminal__line mole-terminal__line--error">> [CRITICAL] Found ${state.errorCount} accessibility violations.</span>
+                                <span class="mole-terminal__line" style="color: var(--mb-descr);">> Refusing to digest dirty markup.</span>
+                            `;
                         }
 
                         terminalHtml += `<div id="live-bug-list" class="mole-diagnostics"></div>`;
-
-                        nodes.avatar.src = window.MOLE_IMAGES[assetKey] || window.MOLE_IMAGES.bored;
-                        nodes.avatar.alt = altDesc;
                         nodes.terminal.innerHTML = terminalHtml;
 
                         if (currentCachedDiagnostics) {
                             renderDiagnostics(currentCachedDiagnostics);
                         }
                     } else {
-                        let assetKey = 'bored';
-                        let altDesc = 'Your Mole companion rests peacefully in a clean, accessible burrow.';
+                        assetKey = 'bored';
+                        altDesc = 'Your Mole companion rests peacefully in a clean, accessible burrow.';
 
                         if (state.stage >= 3) {
                             assetKey = 'outsideHappy';
@@ -363,17 +360,22 @@
                             altDesc = 'Your Junior Mole developer wearing a hard hat, happy with your code changes.';
                         }
 
-                        nodes.avatar.src = window.MOLE_IMAGES[assetKey] || window.MOLE_IMAGES.bored;
-                        nodes.avatar.alt = altDesc;
+                        nodes.terminal.innerHTML = `
+                            <span class="mole-terminal__line"><span class="mole-terminal__line--prefix">mole@burrow:~$</span> test --file ${state.fileName}</span>
+                            <span class="mole-terminal__line mole-terminal__line--success">> [SUCCESS] 100% WCAG criteria met. Code is fully edible!</span>
+                        `;
+                    }
 
-                    const targetStageAssets = window.MOLE_ASSETS[state.stage];
-                    if (targetStageAssets && targetStageAssets[assetKey]) {
-                        nodes.avatar.src = targetStageAssets[assetKey];
+                    // Step B: Resolve final URI paths using Professor's multi-tier evolution map
+                    const currentStageKey = state.stage || 1;
+                    if (window.MOLE_ASSETS[currentStageKey] && window.MOLE_ASSETS[currentStageKey][assetKey]) {
+                        nodes.avatar.src = window.MOLE_ASSETS[currentStageKey][assetKey];
+                    } else if (window.MOLE_ASSETS[1] && window.MOLE_ASSETS[1]['bored']) {
+                        // Fallback mechanism to global tier-1 asset default root
+                        nodes.avatar.src = window.MOLE_ASSETS[1]['bored'];
                     }
 
                     nodes.avatar.alt = altDesc;
-                    nodes.terminal.innerHTML = terminalHtml;
-
                     previousErrorCount = state.errorCount;
                 }
             }

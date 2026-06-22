@@ -131,6 +131,9 @@ export function activate(context: vscode.ExtensionContext) {
   const watcher = new CodeWatcher(
     context,
     (fileName, errorCount, fixedFoodType, errorLines) => {
+      // Toggle on native spinner rendering inside status bar layout
+      statusBar.setAnalyzing(true);
+
       engine.processCodeAnalysis(fileName, errorCount, fixedFoodType);
 
       const cleanLines = errorLines || [];
@@ -138,6 +141,9 @@ export function activate(context: vscode.ExtensionContext) {
 
       triggerCodeHighlighting();
       syncPanelDiagnostics(fileName, cleanLines);
+
+      // Release background compilation state flags
+      statusBar.setAnalyzing(false);
     },
   );
 
@@ -185,6 +191,17 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
+  // Listen to active keystroke inputs to flip the Mole status indicator
+  const typingListener = vscode.workspace.onDidChangeTextDocument((event) => {
+    const activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor && event.document === activeEditor.document) {
+      const supportedLanguages = ['html', 'vue'];
+      if (supportedLanguages.includes(activeEditor.document.languageId)) {
+        statusBar.triggerTypingState();
+      }
+    }
+  });
+
   // Register command to manually reveal the Mole's Burrow panel view
   const openBurrowCommand = vscode.commands.registerCommand(
     'vsc-accessibility-gamifier.openBurrow',
@@ -218,6 +235,7 @@ export function activate(context: vscode.ExtensionContext) {
     windowFocusListener,
     activeEditorListener,
     configListener,
+    typingListener,
     errorLineDecorationType,
     {
       dispose: () => {
@@ -236,12 +254,6 @@ function handleEngineNotifications(state: GameState, eventType: string): void {
     case 'LEVEL_UP':
       vscode.window.showInformationMessage(
         `Level Up! Your Mole evolved to Level ${state.level}! Check its new gear!`,
-      );
-      break;
-
-    case 'COMBO_BROKEN':
-      vscode.window.showWarningMessage(
-        `Perfect Run Broken! New accessibility errors were detected in ${state.fileName}. The combo multiplier has reset to x1.0.`,
       );
       break;
   }
