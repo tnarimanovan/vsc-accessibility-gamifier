@@ -139,6 +139,18 @@ export class MoleWebviewPanel {
     }
   }
 
+  public isVisible(): boolean {
+    return this._panel.visible;
+  }
+
+  public onDidChangeVisibility(callback: (visible: boolean) => void) {
+    this._panel.onDidChangeViewState(
+      (e) => callback(e.webviewPanel.visible),
+      null,
+      this._disposables,
+    );
+  }
+
   public dispose() {
     this._panel.dispose();
     while (this._disposables.length) {

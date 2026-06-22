@@ -155,7 +155,9 @@ export function activate(context: vscode.ExtensionContext) {
         errorsByFileCache[fileName] = cleanLines;
 
         triggerCodeHighlighting();
-        syncPanelDiagnostics(fileName, cleanLines);
+        if (activePanel && activePanel.isVisible()) {
+          syncPanelDiagnostics(fileName, cleanLines);
+        }
       } catch (error) {
         console.error(
           'CRITICAL: Accessibility background analysis worker crashed:',
@@ -278,17 +280,28 @@ export function activate(context: vscode.ExtensionContext) {
         activePanel = MoleWebviewPanel.create(context.extensionUri, () => {
           activePanel = undefined;
         });
-        activePanel.updateGameState(engine.state);
 
-        const activeEditor = vscode.window.activeTextEditor;
-        if (activeEditor) {
-          const currentFileName =
-            activeEditor.document.fileName.split(/[\\/]/).pop() || 'unknown';
-          syncPanelDiagnostics(
-            currentFileName,
-            errorsByFileCache[currentFileName] || [],
-          );
-        }
+        const forceSyncData = () => {
+          if (!activePanel) return;
+          activePanel.updateGameState(engine.state);
+          const activeEditor = vscode.window.activeTextEditor;
+          if (activeEditor) {
+            const currentFileName =
+              activeEditor.document.fileName.split(/[\\/]/).pop() || 'unknown';
+            syncPanelDiagnostics(
+              currentFileName,
+              errorsByFileCache[currentFileName] || [],
+            );
+          }
+        };
+
+        activePanel.onDidChangeVisibility((visible: boolean) => {
+          if (visible) {
+            forceSyncData();
+          }
+        });
+
+        forceSyncData();
       }
     },
   );
