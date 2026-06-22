@@ -30,6 +30,10 @@ export function activate(context: vscode.ExtensionContext) {
     statusBar.stopHeartbeat();
   }
 
+  // Tracking human physical presence at the workstation
+  let lastTypingTimestamp = Date.now();
+  const TWENTY_MINUTES_MS = 20 * 60 * 1000;
+
   // Reference register to cache line markers of the active session
   const errorsByFileCache: Record<string, number[]> = {};
 
@@ -196,6 +200,16 @@ export function activate(context: vscode.ExtensionContext) {
     if (!isEditorFocused) {
       return; // Absolute metabolic degradation freeze lock
     }
+
+    // AFK Protection Gate
+    const timeSinceLastKeystroke = Date.now() - lastTypingTimestamp;
+    if (timeSinceLastKeystroke > TWENTY_MINUTES_MS) {
+      console.log(
+        '🔗 [AFK Protection]: Developer is away from keyboard. Hunger ticker frozen.',
+      );
+      return;
+    }
+
     engine.handleHungerTicker();
   }, TEN_MINUTES_MS);
 
@@ -292,6 +306,7 @@ export function activate(context: vscode.ExtensionContext) {
     if (activeEditor && event.document === activeEditor.document) {
       const supportedLanguages = ['html', 'vue'];
       if (supportedLanguages.includes(activeEditor.document.languageId)) {
+        lastTypingTimestamp = Date.now();
         statusBar.triggerTypingState();
       }
     }
