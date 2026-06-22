@@ -7,10 +7,21 @@ import { GameState } from './shared/types';
 
 const STORAGE_KEY = 'vsc-accessibility-gamifier.state';
 
+// VISUAL DECORATION TYPE: Persistent decoration styles for accessibility errors
+const errorLineDecorationType = vscode.window.createTextEditorDecorationType({
+  backgroundColor: 'rgba(244, 67, 54, 0.08)', // Soft red whole-line shading
+  isWholeLine: true,
+  overviewRulerColor: 'rgba(244, 67, 54, 0.6)', // Red block marker on scrollbar track
+  overviewRulerLane: vscode.OverviewRulerLane.Right,
+});
+
 export function activate(context: vscode.ExtensionContext) {
   let activePanel: MoleWebviewPanel | undefined = undefined;
   let hungerInterval: NodeJS.Timeout | undefined = undefined;
   const statusBar = new MoleStatusBar();
+
+  // Reference register to cache line markers of the active session
+  const errorsByFileCache: Record<string, number[]> = {};
 
   // 1. PERSISTENCE STORAGE LAYER: Recover saved state from VS Code storage engine
   const savedStateJson = context.globalState.get<string>(STORAGE_KEY);
@@ -70,18 +81,55 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
-  // 3. INFRASTRUCTURE PIPELINE: Connect the real CodeWatcher to the Engine
-  // It intercepts file saves and feeds real analytics straight to our game loop
+  // 3. VISUAL ENGINE PIPELINE: Local orchestration
+  function triggerCodeHighlighting() {
+    const activeEditor = vscode.window.activeTextEditor;
+    if (!activeEditor) {
+      return;
+    }
+
+    const currentFileName =
+      activeEditor.document.fileName.split(/[\\/]/).pop() || 'unknown';
+
+    const config = vscode.workspace.getConfiguration('accessibilityMole');
+    const isHighlightingEnabled = config.get<boolean>(
+      'enableCodeHighlighting',
+      true,
+    );
+
+    const fileErrorLines = errorsByFileCache[currentFileName] || [];
+
+    if (!isHighlightingEnabled || fileErrorLines.length === 0) {
+      activeEditor.setDecorations(errorLineDecorationType, []);
+      return;
+    }
+
+    const decorations: vscode.DecorationOptions[] = [];
+    const lineCount = activeEditor.document.lineCount;
+
+    for (const lineIndex of fileErrorLines) {
+      if (lineIndex < lineCount) {
+        const range = activeEditor.document.lineAt(lineIndex).range;
+        decorations.push({ range });
+      }
+    }
+
+    activeEditor.setDecorations(errorLineDecorationType, decorations);
+  }
+
+  // 4. INFRASTRUCTURE PIPELINE: Connect CodeWatcher to Engine and ingest direct line coordinates
   const watcher = new CodeWatcher(
     context,
-    (fileName, errorCount, fixedFoodType) => {
+    (fileName, errorCount, fixedFoodType, errorLines) => {
       engine.processCodeAnalysis(fileName, errorCount, fixedFoodType);
+
+      errorsByFileCache[fileName] = errorLines || [];
+
+      triggerCodeHighlighting();
     },
   );
 
-  // 4. TIMER PIPELINE: Instantiate hunger ticker interval (fires every 10 minutes)
-
-  // Track the native window focus state inside the OS environment
+  // 5. TIMER PIPELINE: Instantiate hunger ticker interval (fires every 10 minutes)
   let isEditorFocused = true;
 
   const windowFocusListener = vscode.window.onDidChangeWindowState(
@@ -95,7 +143,7 @@ export function activate(context: vscode.ExtensionContext) {
   const TEN_MINUTES_MS = 10 * 60 * 1000;
 
   hungerInterval = setInterval(() => {
-    // STRICT GUARD CLAUSE: Freeze metabolic depletion if developer is working in browser or somewhere else
+    // Freeze metabolic depletion if developer is working in browser or somewhere else
     if (!isEditorFocused) {
       return;
     }
@@ -103,6 +151,16 @@ export function activate(context: vscode.ExtensionContext) {
     // Trigger decay only during active focus minutes
     engine.handleHungerTicker();
   }, TEN_MINUTES_MS);
+
+  // Synchronize decorations when developer shifts tabs between workspace documents
+  const activeEditorListener = vscode.window.onDidChangeActiveTextEditor(
+    (editor) => {
+      if (editor) {
+        editor.setDecorations(errorLineDecorationType, []);
+        triggerCodeHighlighting();
+      }
+    },
+  );
 
   // Register command to manually reveal the Mole's Burrow panel view
   const openBurrowCommand = vscode.commands.registerCommand(
@@ -119,12 +177,14 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
-  // 5. RESOURCE CLEANUP: Track disposables to prevent memory leaks
+  // 6. RESOURCE CLEANUP: Track disposables to prevent memory leaks
   context.subscriptions.push(
     openBurrowCommand,
     watcher,
     statusBar,
-    windowFocusListener, // Added focus listener wrapper to lifecycle context
+    windowFocusListener,
+    activeEditorListener,
+    errorLineDecorationType,
     {
       dispose: () => {
         if (hungerInterval) {

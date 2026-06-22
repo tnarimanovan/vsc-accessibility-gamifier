@@ -65,6 +65,7 @@ port.on(
         runScripts: 'dangerously',
         pretendToBeVisual: false,
         virtualConsole,
+        includeNodeLocations: true,
       });
 
       dom.window.eval(axeCode);
@@ -80,6 +81,40 @@ port.on(
 
       // Map current violations to a clean string array of rule IDs
       const currentViolations = results.violations.map((v: any) => v.id);
+
+      // LINE MARKERS EXTRACTION PIPELINE
+      const errorLines: number[] = [];
+
+      results.violations.forEach((violation: any) => {
+        if (violation.nodes && Array.isArray(violation.nodes)) {
+          violation.nodes.forEach((node: any) => {
+            if (node.target && node.target[0]) {
+              try {
+                const element = dom!.window.document.querySelector(
+                  node.target[0],
+                );
+                if (element) {
+                  const location = dom!.nodeLocation(element);
+                  if (location) {
+                    // JSDOM uses 1-based indexing, VS Code expects 0-based index references
+                    const vscodeLineIndex = location.startLine - 1;
+                    if (!errorLines.includes(vscodeLineIndex)) {
+                      errorLines.push(vscodeLineIndex);
+                    }
+                  }
+                }
+              } catch (selectorError) {
+                console.error(
+                  'Failed to resolve node location for target:',
+                  node.target[0],
+                  selectorError,
+                );
+              }
+            }
+          });
+        }
+      });
+
       let fixedFoodType: FoodType | undefined = undefined;
 
       // DELTA CHECK MECHANISM: Evaluate if the developer successfully eliminated a bug
@@ -98,10 +133,14 @@ port.on(
       // Sync current snapshot back into the cache register map
       violationCache[fileName] = currentViolations;
 
-      const response: WorkerAnalysisResult & { isParsingError?: boolean } = {
+      const response: WorkerAnalysisResult & {
+        isParsingError?: boolean;
+        errorLines?: number[];
+      } = {
         fileName,
         errorCount: currentViolations.length,
         fixedFoodType,
+        errorLines,
         isParsingError: false,
       };
 
@@ -114,13 +153,16 @@ port.on(
       // FAULT-TOLERANT ESCAPE ROUTE:
       // Instead of forcing errorCount: 1, mirror the historical cache length.
       // This ensures errorCount === previousErrors inside GamificationEngine, keeping combo streaks intact.
-      const errorResponse: WorkerAnalysisResult & { isParsingError?: boolean } =
-        {
-          fileName,
-          errorCount: previousViolations.length,
-          fixedFoodType: undefined,
-          isParsingError: true, // Flag to notify extension core to gracefully skip UI re-renders if necessary
-        };
+      const errorResponse: WorkerAnalysisResult & {
+        isParsingError?: boolean;
+        errorLines?: number[];
+      } = {
+        fileName,
+        errorCount: previousViolations.length,
+        fixedFoodType: undefined,
+        errorLines: [],
+        isParsingError: true,
+      };
 
       port.postMessage(errorResponse);
     } finally {

@@ -9,6 +9,7 @@ export interface WorkerAnalysisResult {
   fileName: string;
   errorCount: number;
   fixedFoodType?: FoodType; // Populated if an accessibility correction rule was successfully applied
+  errorLines?: number[]; // Precise code rows coordinates containing violations
 }
 
 export class CodeWatcher implements vscode.Disposable {
@@ -22,6 +23,7 @@ export class CodeWatcher implements vscode.Disposable {
       fileName: string,
       errorCount: number,
       fixedFoodType?: FoodType,
+      errorLines?: number[],
     ) => void,
   ) {
     this.initWorker();
@@ -53,6 +55,7 @@ export class CodeWatcher implements vscode.Disposable {
         result.fileName,
         result.errorCount,
         result.fixedFoodType,
+        result.errorLines,
       );
     });
 
