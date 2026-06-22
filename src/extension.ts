@@ -239,7 +239,10 @@ export function activate(context: vscode.ExtensionContext) {
       );
       statusBar.update(engine.state);
 
-      syncPanelDiagnostics(currentFileName, cachedFileLines);
+      if (activePanel) {
+        activePanel.updateGameState(engine.state);
+        syncPanelDiagnostics(currentFileName, cachedFileLines);
+      }
     },
   );
 
@@ -321,8 +324,6 @@ export function deactivate() {
   if (hungerInterval) {
     clearInterval(hungerInterval);
     hungerInterval = undefined;
-    console.log(
-      'Companion hunger metabolic interval cleared successfully.',
-    );
+    console.log('Companion hunger metabolic interval cleared successfully.');
   }
 }
