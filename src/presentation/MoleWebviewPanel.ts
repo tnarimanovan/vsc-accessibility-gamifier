@@ -103,6 +103,18 @@ export class MoleWebviewPanel {
     }
   }
 
+  public sendDocumentDiagnostics(fileName: string, errorLines: number[]): void {
+    if (this._panel) {
+      this._panel.webview.postMessage({
+        type: 'DIAGNOSTICS_UPDATE',
+        payload: {
+          fileName,
+          errorLines,
+        },
+      });
+    }
+  }
+
   public dispose() {
     this._panel.dispose();
     while (this._disposables.length) {

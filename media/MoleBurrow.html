@@ -148,6 +148,19 @@
         .mole-terminal__line--prefix {
             color: #569cd6;
         }
+
+        .mole-diagnostics {
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px dashed rgba(255, 255, 255, 0.15);
+        }
+
+        .mole-diagnostics__item {
+            color: #ffaa00;
+            display: flex;
+            gap: 6px;
+            font-family: var(--vscode-editor-font-family, monospace);
+        }
     </style>
 </head>
 
@@ -205,7 +218,6 @@
                 terminal: document.getElementById('view-terminal')
             };
 
-            // Mappings for Clean Domain Separation
             const STAGE_NAMES = {
                 1: 'Mole Intern',
                 2: 'Junior Mole Dev',
@@ -267,6 +279,8 @@
                             `;
                         }
 
+                        terminalHtml += `<div id="live-bug-list" class="mole-diagnostics"></div>`;
+
                         nodes.avatar.src = window.MOLE_IMAGES[assetKey] || window.MOLE_IMAGES.bored;
                         nodes.avatar.alt = altDesc;
                         nodes.terminal.innerHTML = terminalHtml;
@@ -295,13 +309,40 @@
                 }
             }
 
+            // Updates the lines sub-list inside terminal status layout
+            function renderDiagnostics(payload) {
+                const bugContainer = document.getElementById('live-bug-list');
+                if (!bugContainer) return;
+
+                const lines = payload.errorLines || [];
+                if (lines.length === 0) {
+                    bugContainer.innerHTML = '';
+                    return;
+                }
+
+                let innerHTML = '';
+                lines.forEach(lineIndex => {
+                    // Convert standard 0-indexed values to human row lines counters
+                    const humanRowNumber = lineIndex + 1;
+                    innerHTML += `<span class="mole-diagnostics__item"> └─ 🔴 Line ${humanRowNumber}: Semantic accessibility fix required</span>`;
+                });
+
+                bugContainer.innerHTML = innerHTML;
+            }
+
             // Initialize System Event Bridge
             window.addEventListener('message', (event) => {
                 const message = event.data;
-                if (message?.type === 'updateState') {
+                if (!message) return;
+
+                if (message.type === 'updateState') {
                     render(message.data);
                 }
+                else if (message.type === 'DIAGNOSTICS_UPDATE') {
+                    renderDiagnostics(message.payload);
+                }
             });
+
             render({
                 level: 1,
                 stage: 1,

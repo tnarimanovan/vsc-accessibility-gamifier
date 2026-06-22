@@ -23,6 +23,16 @@ export function activate(context: vscode.ExtensionContext) {
   // Reference register to cache line markers of the active session
   const errorsByFileCache: Record<string, number[]> = {};
 
+  // Helper to safely push fresh errors into the webview component
+  function syncPanelDiagnostics(fileName: string, errorLines: number[]) {
+    if (
+      activePanel &&
+      typeof (activePanel as any).sendDocumentDiagnostics === 'function'
+    ) {
+      (activePanel as any).sendDocumentDiagnostics(fileName, errorLines);
+    }
+  }
+
   // 1. PERSISTENCE STORAGE LAYER: Recover saved state from VS Code storage engine
   const savedStateJson = context.globalState.get<string>(STORAGE_KEY);
   let restoredState: GameState | undefined = undefined;
@@ -123,9 +133,11 @@ export function activate(context: vscode.ExtensionContext) {
     (fileName, errorCount, fixedFoodType, errorLines) => {
       engine.processCodeAnalysis(fileName, errorCount, fixedFoodType);
 
-      errorsByFileCache[fileName] = errorLines || [];
+      const cleanLines = errorLines || [];
+      errorsByFileCache[fileName] = cleanLines;
 
       triggerCodeHighlighting();
+      syncPanelDiagnostics(fileName, cleanLines);
     },
   );
 
@@ -138,17 +150,12 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
-  // Scientifically grounded 10-minute interval execution loop (600,000 milliseconds)
-  // Ensures the Mole changes state softly, requiring check-ins only 1-2 times per full workday
   const TEN_MINUTES_MS = 10 * 60 * 1000;
 
   hungerInterval = setInterval(() => {
-    // Freeze metabolic depletion if developer is working in browser or somewhere else
     if (!isEditorFocused) {
       return;
     }
-
-    // Trigger decay only during active focus minutes
     engine.handleHungerTicker();
   }, TEN_MINUTES_MS);
 
@@ -158,6 +165,13 @@ export function activate(context: vscode.ExtensionContext) {
       if (editor) {
         editor.setDecorations(errorLineDecorationType, []);
         triggerCodeHighlighting();
+
+        const currentFileName =
+          editor.document.fileName.split(/[\\/]/).pop() || 'unknown';
+        syncPanelDiagnostics(
+          currentFileName,
+          errorsByFileCache[currentFileName] || [],
+        );
       }
     },
   );
@@ -173,6 +187,16 @@ export function activate(context: vscode.ExtensionContext) {
           activePanel = undefined;
         });
         activePanel.updateGameState(engine.state);
+
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor) {
+          const currentFileName =
+            activeEditor.document.fileName.split(/[\\/]/).pop() || 'unknown';
+          syncPanelDiagnostics(
+            currentFileName,
+            errorsByFileCache[currentFileName] || [],
+          );
+        }
       }
     },
   );
