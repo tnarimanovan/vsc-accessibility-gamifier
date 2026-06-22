@@ -136,7 +136,7 @@ export function activate(context: vscode.ExtensionContext) {
         activePanel.updateGameState(finalState);
       }
 
-      handleEngineNotifications(finalState, eventType);
+      handleEngineNotifications(updatedState, eventType);
     },
   );
 
@@ -352,6 +352,20 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
+  const forceSyncData = () => {
+    if (!activePanel) return;
+    activePanel.updateGameState(engine.state);
+    const activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor) {
+      const currentFileName =
+        activeEditor.document.fileName.split(/[\\/]/).pop() || 'unknown';
+      syncPanelDiagnostics(
+        currentFileName,
+        errorsByFileCache[currentFileName] || [],
+      );
+    }
+  };
+
   // Register command to manually reveal the Mole's Burrow panel view
   const openBurrowCommand = vscode.commands.registerCommand(
     'vsc-accessibility-gamifier.openBurrow',
@@ -362,21 +376,6 @@ export function activate(context: vscode.ExtensionContext) {
         activePanel = MoleWebviewPanel.create(context.extensionUri, () => {
           activePanel = undefined;
         });
-
-        // Sync helper method maps standard layout updates
-        const forceSyncData = () => {
-          if (!activePanel) return;
-          activePanel.updateGameState(engine.state);
-          const activeEditor = vscode.window.activeTextEditor;
-          if (activeEditor) {
-            const currentFileName =
-              activeEditor.document.fileName.split(/[\\/]/).pop() || 'unknown';
-            syncPanelDiagnostics(
-              currentFileName,
-              errorsByFileCache[currentFileName] || [],
-            );
-          }
-        };
 
         // Direct visibility listener catches back-focus events contextually
         activePanel.onDidChangeVisibility((visible: boolean) => {
@@ -389,6 +388,31 @@ export function activate(context: vscode.ExtensionContext) {
       }
     },
   );
+
+if (typeof vscode.window.registerWebviewPanelSerializer === 'function') {
+    vscode.window.registerWebviewPanelSerializer('moleHome', {
+      async deserializeWebviewPanel(
+        webviewPanel: vscode.WebviewPanel,
+        _state: any,
+      ) {
+        activePanel = MoleWebviewPanel.revive(
+          webviewPanel,
+          context.extensionUri,
+          () => {
+            activePanel = undefined;
+          },
+        );
+
+        activePanel.onDidChangeVisibility((visible: boolean) => {
+          if (visible) {
+            forceSyncData();
+          }
+        });
+
+        forceSyncData();
+      },
+    });
+  }
 
   // 6. RESOURCE CLEANUP: Track disposables to prevent memory leaks
   context.subscriptions.push(

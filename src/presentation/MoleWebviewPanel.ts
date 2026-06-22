@@ -151,6 +151,14 @@ export class MoleWebviewPanel {
     );
   }
 
+  public static revive(
+    panel: vscode.WebviewPanel,
+    extensionUri: vscode.Uri,
+    onDispose: () => void,
+  ): MoleWebviewPanel {
+    return new MoleWebviewPanel(panel, extensionUri, onDispose);
+  }
+
   public dispose() {
     this._panel.dispose();
     while (this._disposables.length) {
