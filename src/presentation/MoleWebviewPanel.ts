@@ -44,6 +44,25 @@ export class MoleWebviewPanel {
       null,
       this._disposables,
     );
+
+    // Listen to IPC message events coming up from the UI frontend layer
+    this._panel.webview.onDidReceiveMessage(
+      async (message) => {
+        switch (message.type) {
+          case 'TOGGLE_HIGHLIGHTING': {
+            const isEnabled = message.payload.enabled;
+
+            // Programmatically update the user's workspace profile configuration settings
+            await vscode.workspace
+              .getConfiguration('accessibilityMole')
+              .update('enableCodeHighlighting', isEnabled, true);
+            break;
+          }
+        }
+      },
+      null,
+      this._disposables,
+    );
   }
 
   public reveal() {
@@ -105,6 +124,18 @@ export class MoleWebviewPanel {
         </body>
         </html>
       `;
+    }
+  }
+
+  public sendDocumentDiagnostics(fileName: string, errorLines: number[]): void {
+    if (this._panel) {
+      this._panel.webview.postMessage({
+        type: 'DIAGNOSTICS_UPDATE',
+        payload: {
+          fileName,
+          errorLines,
+        },
+      });
     }
   }
 

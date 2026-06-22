@@ -7,10 +7,31 @@ import { GameState } from './shared/types';
 
 const STORAGE_KEY = 'vsc-accessibility-gamifier.state';
 
+// VISUAL DECORATION TYPE: Persistent decoration styles for accessibility errors
+const errorLineDecorationType = vscode.window.createTextEditorDecorationType({
+  backgroundColor: 'rgba(244, 67, 54, 0.08)', // Soft red whole-line shading
+  isWholeLine: true,
+  overviewRulerColor: 'rgba(244, 67, 54, 0.6)', // Red block marker on scrollbar track
+  overviewRulerLane: vscode.OverviewRulerLane.Right,
+});
+
 export function activate(context: vscode.ExtensionContext) {
   let activePanel: MoleWebviewPanel | undefined = undefined;
   let hungerInterval: NodeJS.Timeout | undefined = undefined;
   const statusBar = new MoleStatusBar();
+
+  // Reference register to cache line markers of the active session
+  const errorsByFileCache: Record<string, number[]> = {};
+
+  // Helper to safely push fresh errors into the webview component
+  function syncPanelDiagnostics(fileName: string, errorLines: number[]) {
+    if (
+      activePanel &&
+      typeof (activePanel as any).sendDocumentDiagnostics === 'function'
+    ) {
+      (activePanel as any).sendDocumentDiagnostics(fileName, errorLines);
+    }
+  }
 
   // 1. PERSISTENCE STORAGE LAYER: Recover saved state from VS Code storage engine
   const savedStateJson = context.globalState.get<string>(STORAGE_KEY);
@@ -70,20 +91,99 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
-  // 3. INFRASTRUCTURE PIPELINE: Connect the real CodeWatcher to the Engine
-  // It intercepts file saves and feeds real analytics straight to our game loop
+  // 3. VISUAL ENGINE PIPELINE: Local orchestration
+  function triggerCodeHighlighting() {
+    const activeEditor = vscode.window.activeTextEditor;
+    if (!activeEditor) {
+      return;
+    }
+
+    const currentFileName =
+      activeEditor.document.fileName.split(/[\\/]/).pop() || 'unknown';
+
+    const config = vscode.workspace.getConfiguration('accessibilityMole');
+    const isHighlightingEnabled = config.get<boolean>(
+      'enableCodeHighlighting',
+      true,
+    );
+
+    const fileErrorLines = errorsByFileCache[currentFileName] || [];
+
+    if (!isHighlightingEnabled || fileErrorLines.length === 0) {
+      activeEditor.setDecorations(errorLineDecorationType, []);
+      return;
+    }
+
+    const decorations: vscode.DecorationOptions[] = [];
+    const lineCount = activeEditor.document.lineCount;
+
+    for (const lineIndex of fileErrorLines) {
+      if (lineIndex < lineCount) {
+        const range = activeEditor.document.lineAt(lineIndex).range;
+        decorations.push({ range });
+      }
+    }
+
+    activeEditor.setDecorations(errorLineDecorationType, decorations);
+  }
+
+  // 4. INFRASTRUCTURE PIPELINE: Connect CodeWatcher to Engine and ingest direct line coordinates
   const watcher = new CodeWatcher(
     context,
-    (fileName, errorCount, fixedFoodType) => {
+    (fileName, errorCount, fixedFoodType, errorLines) => {
       engine.processCodeAnalysis(fileName, errorCount, fixedFoodType);
+
+      const cleanLines = errorLines || [];
+      errorsByFileCache[fileName] = cleanLines;
+
+      triggerCodeHighlighting();
+      syncPanelDiagnostics(fileName, cleanLines);
     },
   );
 
-  // 4. TIMER PIPELINE: Instantiate hunger ticker interval (fires every 5 minutes)
-  const FIVE_MINUTES_MS = 5 * 60 * 1000;
+  // 5. TIMER PIPELINE: Instantiate hunger ticker interval (fires every 10 minutes)
+  let isEditorFocused = true;
+
+  const windowFocusListener = vscode.window.onDidChangeWindowState(
+    (windowState: vscode.WindowState) => {
+      isEditorFocused = windowState.focused;
+    },
+  );
+
+  const TEN_MINUTES_MS = 10 * 60 * 1000;
+
   hungerInterval = setInterval(() => {
+    if (!isEditorFocused) {
+      return;
+    }
     engine.handleHungerTicker();
-  }, FIVE_MINUTES_MS);
+  }, TEN_MINUTES_MS);
+
+  // Synchronize decorations when developer shifts tabs between workspace documents
+  const activeEditorListener = vscode.window.onDidChangeActiveTextEditor(
+    (editor) => {
+      if (editor) {
+        editor.setDecorations(errorLineDecorationType, []);
+        triggerCodeHighlighting();
+
+        const currentFileName =
+          editor.document.fileName.split(/[\\/]/).pop() || 'unknown';
+        syncPanelDiagnostics(
+          currentFileName,
+          errorsByFileCache[currentFileName] || [],
+        );
+      }
+    },
+  );
+
+  // React instantly to runtime configuration changes sent from Webview panel toggle buttons
+  const configListener = vscode.workspace.onDidChangeConfiguration((event) => {
+    if (
+      event.affectsConfiguration('accessibilityMole.enableCodeHighlighting')
+    ) {
+      triggerCodeHighlighting();
+    }
+  });
 
   // Register command to manually reveal the Mole's Burrow panel view
   const openBurrowCommand = vscode.commands.registerCommand(
@@ -96,26 +196,41 @@ export function activate(context: vscode.ExtensionContext) {
           activePanel = undefined;
         });
         activePanel.updateGameState(engine.state);
+
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor) {
+          const currentFileName =
+            activeEditor.document.fileName.split(/[\\/]/).pop() || 'unknown';
+          syncPanelDiagnostics(
+            currentFileName,
+            errorsByFileCache[currentFileName] || [],
+          );
+        }
       }
     },
   );
 
-  // 5. RESOURCE CLEANUP: Track disposables to prevent memory leaks
-  context.subscriptions.push(openBurrowCommand, watcher);
-  context.subscriptions.push(openBurrowCommand, watcher, statusBar);
-  context.subscriptions.push({
-    dispose: () => {
-      if (hungerInterval) {
-        clearInterval(hungerInterval);
-      }
+  // 6. RESOURCE CLEANUP: Track disposables to prevent memory leaks
+  context.subscriptions.push(
+    openBurrowCommand,
+    watcher,
+    statusBar,
+    windowFocusListener,
+    activeEditorListener,
+    configListener,
+    errorLineDecorationType,
+    {
+      dispose: () => {
+        if (hungerInterval) {
+          clearInterval(hungerInterval);
+        }
+      },
     },
-  });
+  );
+
   statusBar.update(engine.state);
 }
 
-/**
- * Orchestrates user facing notification popups based on engine domain events
- */
 function handleEngineNotifications(state: GameState, eventType: string): void {
   switch (eventType) {
     case 'LEVEL_UP':

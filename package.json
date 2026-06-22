@@ -20,7 +20,17 @@
         "title": "Mole's Burrow: Open Burrow",
         "category": "Accessibility Gamifier"
       }
-    ]
+    ],
+    "configuration": {
+    "title": "Accessibility Mole",
+    "properties": {
+      "accessibilityMole.enableCodeHighlighting": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable visual highlighting of lines with accessibility errors directly in the text editor."
+      }
+    }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
