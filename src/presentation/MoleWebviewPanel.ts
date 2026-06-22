@@ -43,6 +43,25 @@ export class MoleWebviewPanel {
       null,
       this._disposables,
     );
+
+    // Listen to IPC message events coming up from the UI frontend layer
+    this._panel.webview.onDidReceiveMessage(
+      async (message) => {
+        switch (message.type) {
+          case 'TOGGLE_HIGHLIGHTING': {
+            const isEnabled = message.payload.enabled;
+
+            // Programmatically update the user's workspace profile configuration settings
+            await vscode.workspace
+              .getConfiguration('accessibilityMole')
+              .update('enableCodeHighlighting', isEnabled, true);
+            break;
+          }
+        }
+      },
+      null,
+      this._disposables,
+    );
   }
 
   public reveal() {

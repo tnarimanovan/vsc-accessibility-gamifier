@@ -176,6 +176,15 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
+  // React instantly to runtime configuration changes sent from Webview panel toggle buttons
+  const configListener = vscode.workspace.onDidChangeConfiguration((event) => {
+    if (
+      event.affectsConfiguration('accessibilityMole.enableCodeHighlighting')
+    ) {
+      triggerCodeHighlighting();
+    }
+  });
+
   // Register command to manually reveal the Mole's Burrow panel view
   const openBurrowCommand = vscode.commands.registerCommand(
     'vsc-accessibility-gamifier.openBurrow',
@@ -208,6 +217,7 @@ export function activate(context: vscode.ExtensionContext) {
     statusBar,
     windowFocusListener,
     activeEditorListener,
+    configListener,
     errorLineDecorationType,
     {
       dispose: () => {
@@ -221,9 +231,6 @@ export function activate(context: vscode.ExtensionContext) {
   statusBar.update(engine.state);
 }
 
-/**
- * Orchestrates user facing notification popups based on engine domain events
- */
 function handleEngineNotifications(state: GameState, eventType: string): void {
   switch (eventType) {
     case 'LEVEL_UP':
