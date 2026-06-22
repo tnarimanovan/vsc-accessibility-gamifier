@@ -51,6 +51,7 @@ export class CodeWatcher implements vscode.Disposable {
 
     // Listen to typed event triggers transmitted from the sandboxed worker environment
     this.worker.on('message', (result: WorkerAnalysisResult) => {
+      // Direct pass-through: extraction operations are completed entirely inside the background thread
       this.onAnalysisComplete(
         result.fileName,
         result.errorCount,
@@ -90,22 +91,38 @@ export class CodeWatcher implements vscode.Disposable {
     // Cross-platform safe filename separation mechanism
     const fileName = document.fileName.split(/[\\/]/).pop() || 'unknown';
 
+    // Line offset identifier initialization (defaults to zero for standard flat HTML)
+    let lineOffset = 0;
+    // Identify file type natively via VS Code workspace indicators
+    const isVue = document.languageId === 'vue';
+
     // If it's a Vue SFC component, cleanly isolate the raw inside contents of the <template> node
-    if (document.languageId === 'vue') {
+    if (isVue) {
       const templateRegex = /<template[^>]*>(.*?)<\/template>/s;
       const match = fileText.match(templateRegex);
-      const templateContent = match && match[1] ? match[1] : '';
 
-      if (!templateContent.trim()) {
+      if (match && match[1]) {
+        // Find the absolute character index where the template content block begins
+        const templateStartIndex = fileText.indexOf(match[1]);
+
+        // Count how many newline symbols (\n) exist prior to the template contents.
+        lineOffset =
+          fileText.substring(0, templateStartIndex).split('\n').length - 1;
+
+        fileText = match[1];
+      } else {
         return;
       }
-
-      fileText = templateContent;
     }
 
     if (this.worker) {
-      // Offload processing intensive HTML parsing operations to the auxiliary thread
-      this.worker.postMessage({ sourceCode: fileText, fileName });
+      // Offload processing intensive HTML parsing operations with strict architectural metrics
+      this.worker.postMessage({
+        sourceCode: fileText,
+        fileName,
+        lineOffset,
+        isVue,
+      });
     }
   }
 

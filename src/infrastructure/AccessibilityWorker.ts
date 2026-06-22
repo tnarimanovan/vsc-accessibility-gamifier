@@ -2,6 +2,7 @@ import { parentPort } from 'worker_threads';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { FoodType } from '../shared/types';
 import { WorkerAnalysisResult } from './CodeWatcher';
+import { AXE_PROFILES, filterViolationsByFileType } from '../shared/axeConfig';
 
 // @ts-ignore
 import axeCode from './axe.min.js';
@@ -45,8 +46,13 @@ const violationCache: Record<string, string[]> = {};
 
 port.on(
   'message',
-  async (message: { sourceCode: string; fileName: string }) => {
-    const { sourceCode, fileName } = message;
+  async (message: {
+    sourceCode: string;
+    fileName: string;
+    lineOffset?: number;
+    isVue?: boolean;
+  }) => {
+    const { sourceCode, fileName, lineOffset = 0, isVue = false } = message;
     let dom: JSDOM | null = null;
 
     // Track previous cache records to avoid breaking FSM state cycles during crashes
@@ -70,22 +76,26 @@ port.on(
 
       dom.window.eval(axeCode);
 
+      // 1. DYNAMIC PROFILE INJECTION: Select configuration matrix profile cleanly
+      const currentConfigProfile = isVue ? AXE_PROFILES.vue : AXE_PROFILES.html;
+
       // Execute Axe accessibility audit inside the virtual window environment
       const results = await dom.window.axe.run(dom.window.document, {
-        runOnly: {
-          type: 'tag',
-          values: ['wcag2a', 'wcag2aa'],
-        },
+        ...currentConfigProfile,
         preload: false,
       });
 
-      // Map current violations to a clean string array of rule IDs
-      const currentViolations = results.violations.map((v: any) => v.id);
+      // 2. ADAPTIVE FILTERING CHAIN: Leverage configuration predicates to isolate errors
+      const activeViolations = filterViolationsByFileType(
+        results.violations,
+        isVue,
+      );
+      const currentViolations = activeViolations.map((v: any) => v.id);
 
       // LINE MARKERS EXTRACTION PIPELINE
       const errorLines: number[] = [];
 
-      results.violations.forEach((violation: any) => {
+      activeViolations.forEach((violation: any) => {
         if (violation.nodes && Array.isArray(violation.nodes)) {
           violation.nodes.forEach((node: any) => {
             if (node.target && node.target[0]) {
@@ -96,19 +106,29 @@ port.on(
                 if (element) {
                   const location = dom!.nodeLocation(element);
                   if (location) {
-                    // JSDOM uses 1-based indexing, VS Code expects 0-based index references
-                    const vscodeLineIndex = location.startLine - 1;
+                    // JSDOM uses 1-based indexing, VS Code expects 0-based index references.
+                    // Recalibrate lines indexing using structural offsets payload parameters.
+                    const vscodeLineIndex = location.startLine - 1 + lineOffset;
                     if (!errorLines.includes(vscodeLineIndex)) {
                       errorLines.push(vscodeLineIndex);
                     }
                   }
                 }
               } catch (selectorError) {
-                console.error(
-                  'Failed to resolve node location for target:',
-                  node.target[0],
-                  selectorError,
-                );
+                // Defensive strategy fallback: if complex selectors break querySelector, fall back to root component tag line
+                if (isVue) {
+                  const fallbackElement =
+                    dom!.window.document.querySelector('component');
+                  if (fallbackElement) {
+                    const location = dom!.nodeLocation(fallbackElement);
+                    if (location) {
+                      const vscodeLineIndex =
+                        location.startLine - 1 + lineOffset;
+                      if (!errorLines.includes(vscodeLineIndex))
+                        errorLines.push(vscodeLineIndex);
+                    }
+                  }
+                }
               }
             }
           });
