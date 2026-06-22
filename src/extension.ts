@@ -146,6 +146,11 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
+      const activeEditor = vscode.window.activeTextEditor;
+      if (activeEditor && activeEditor.document.lineCount > 3000) {
+        return;
+      }
+
       statusBar.setAnalyzing(true);
 
       try {
@@ -225,6 +230,28 @@ export function activate(context: vscode.ExtensionContext) {
 
       // STANDARD SUPPORTED FLOW: HTML/Vue file is in focus
       editor.setDecorations(errorLineDecorationType, []);
+
+      if (editor.document.lineCount > 3000) {
+        const giantFileName =
+          editor.document.fileName.split(/[\\/]/).pop() || 'unknown';
+
+        engine.processCodeAnalysis(
+          `${giantFileName} (Too Deep!)`,
+          0,
+          undefined,
+        );
+        statusBar.update(engine.state);
+
+        vscode.window.showWarningMessage(
+          `🚧 This file is too deep (${editor.document.lineCount} lines)! The Mole refuses to dig here to save CPU resources.`,
+        );
+
+        if (activePanel) {
+          activePanel.updateGameState(engine.state);
+        }
+        return;
+      }
+
       triggerCodeHighlighting();
 
       const currentFileName =
