@@ -7,13 +7,14 @@ export class GamificationEngine {
     eventType: string,
   ) => void;
 
+  private _fileErrorMinima: Record<string, number> = {};
+
   constructor(
     initialState: GameState | undefined,
     onStateChange: (state: GameState, eventType: string) => void,
   ) {
     this._onStateChange = onStateChange;
 
-    // Fallback default state if no saved state is recovered from VS Code globalState
     this._state = initialState || {
       level: 1,
       stage: 1,
@@ -26,31 +27,20 @@ export class GamificationEngine {
     };
   }
 
-  /**
-   * Returns a copy of the current game state (Encapsulation protection)
-   */
   public get state(): GameState {
     return { ...this._state };
   }
 
-  /**
-   * Smart hunger simulation ticker. Decreases satiety by 1 point.
-   * Driven by active window focus verified via extension lifecycle triggers.
-   */
   public handleHungerTicker(): void {
     if (this._state.satiety > 0) {
       this._state.satiety = Math.max(0, this._state.satiety - 1);
 
-      // Emit specialized event if it drops past the healthy baseline
       const eventType =
         this._state.satiety < 30 ? 'MOLE_STARVING' : 'SATIETY_DROP';
       this._onStateChange(this.state, eventType);
     }
   }
 
-  /**
-   * Main pipeline processing analysis results from the workspace code watcher
-   */
   public processCodeAnalysis(
     fileName: string,
     currentErrors: number,
@@ -60,9 +50,18 @@ export class GamificationEngine {
     const previousErrors = this._state.errorCount;
     this._state.errorCount = currentErrors;
 
+    if (this._fileErrorMinima[fileName] === undefined) {
+      this._fileErrorMinima[fileName] = previousErrors;
+    }
+
     // SCENARIO 1: Errors were eliminated completely or partially fixed (Mole Feeds)
     if (currentErrors < previousErrors && fixedFoodType) {
-      this.feedMole(fixedFoodType);
+      if (currentErrors < this._fileErrorMinima[fileName]) {
+        this._fileErrorMinima[fileName] = currentErrors;
+        this.feedMole(fixedFoodType);
+      } else {
+        this._onStateChange(this.state, 'MOLE_RESTING');
+      }
       return;
     }
 
@@ -70,7 +69,6 @@ export class GamificationEngine {
     if (currentErrors > 0) {
       let eventType = 'STAGNANT_ERRORS';
 
-      // If combo run is currently active and new errors occur -> Break the Perfect Run Combo
       if (this._state.combo > 1.0) {
         this._state.combo = 1.0;
         eventType = 'COMBO_BROKEN';
@@ -86,44 +84,33 @@ export class GamificationEngine {
     }
   }
 
-  /**
-   * Internal mechanism managing XP multiplication, level upgrades, and satiety limits
-   */
   private feedMole(food: FoodType): void {
     const reward = FOOD_REWARDS[food];
-
-    // Calculate final combo-multiplied XP gain
     const calculatedXpGain = Math.round(reward.xp * this._state.combo);
 
     this._state.xp += calculatedXpGain;
     this._state.satiety = Math.min(100, this._state.satiety + reward.satiety);
 
-    // Progress the Perfect Run Multiplier combo step up
     this.advanceComboCounter();
 
     let eventType = 'MOLE_FED';
 
-    // Handle Level Up checkpoint conditions
     if (this._state.xp >= this._state.neededXp) {
-      this.executeLevelUp();
+      while (this._state.xp >= this._state.neededXp) {
+        this.executeLevelUp();
+      }
       eventType = 'LEVEL_UP';
     }
 
     this._onStateChange(this.state, eventType);
   }
 
-  /**
-   * Steps up the multiplier run index: x1.0 -> x1.2 -> x1.5 -> x2.0 (Max standard cap)
-   */
   private advanceComboCounter(): void {
     if (this._state.combo === 1.0) this._state.combo = 1.2;
     else if (this._state.combo === 1.2) this._state.combo = 1.5;
     else if (this._state.combo === 1.5) this._state.combo = 2.0;
   }
 
-  /**
-   * Resets experience remainder tokens and increments levels + evolution thresholds
-   */
   private executeLevelUp(): void {
     this._state.level += 1;
     this._state.xp = Math.max(0, this._state.xp - this._state.neededXp);
