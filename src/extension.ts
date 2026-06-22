@@ -192,22 +192,54 @@ export function activate(context: vscode.ExtensionContext) {
     engine.handleHungerTicker();
   }, TEN_MINUTES_MS);
 
-  // Synchronize decorations when developer shifts tabs between workspace documents
+  // Synchronize decorations and companion states when developer shifts tabs between workspace documents
   const activeEditorListener = vscode.window.onDidChangeActiveTextEditor(
     (editor) => {
       if (!isEditorFocused) return; // Ignore tracking updates while window remains in cold background cache
 
-      if (editor) {
-        editor.setDecorations(errorLineDecorationType, []);
-        triggerCodeHighlighting();
-
-        const currentFileName =
-          editor.document.fileName.split(/[\\/]/).pop() || 'unknown';
-        syncPanelDiagnostics(
-          currentFileName,
-          errorsByFileCache[currentFileName] || [],
-        );
+      // SCENARIO 2: Zero tabs open layout (Empty workspace window view)
+      if (!editor) {
+        // Safe reset: clear highlights and force the engine back into a clean idle state
+        engine.processCodeAnalysis('none', 0, undefined);
+        statusBar.update(engine.state);
+        return;
       }
+
+      const supportedLanguages = ['html', 'vue'];
+      const currentLanguageId = editor.document.languageId;
+
+      // SCENARIO 1: Switching to unsupported development files (e.g., .css, .json, .ts)
+      if (!supportedLanguages.includes(currentLanguageId)) {
+        // Remove existing red lines decoration layer from the view first
+        editor.setDecorations(errorLineDecorationType, []);
+
+        // Force-sync state into 0 bugs to shift the Mole into a peaceful resting state
+        const fallbackName =
+          editor.document.fileName.split(/[\\/]/).pop() || 'unknown';
+        engine.processCodeAnalysis(fallbackName, 0, undefined);
+        statusBar.update(engine.state);
+        return;
+      }
+
+      // STANDARD SUPPORTED FLOW: HTML/Vue file is in focus
+      editor.setDecorations(errorLineDecorationType, []);
+      triggerCodeHighlighting();
+
+      const currentFileName =
+        editor.document.fileName.split(/[\\/]/).pop() || 'unknown';
+
+      // Request matching cached values or fallback to empty state
+      const cachedFileLines = errorsByFileCache[currentFileName] || [];
+
+      // Update engine error count state based on current cache before syncing UI
+      engine.processCodeAnalysis(
+        currentFileName,
+        cachedFileLines.length,
+        undefined,
+      );
+      statusBar.update(engine.state);
+
+      syncPanelDiagnostics(currentFileName, cachedFileLines);
     },
   );
 
