@@ -134,16 +134,23 @@ export function activate(context: vscode.ExtensionContext) {
       // Toggle on native spinner rendering inside status bar layout
       statusBar.setAnalyzing(true);
 
-      engine.processCodeAnalysis(fileName, errorCount, fixedFoodType);
+      try {
+        engine.processCodeAnalysis(fileName, errorCount, fixedFoodType);
 
-      const cleanLines = errorLines || [];
-      errorsByFileCache[fileName] = cleanLines;
+        const cleanLines = errorLines || [];
+        errorsByFileCache[fileName] = cleanLines;
 
-      triggerCodeHighlighting();
-      syncPanelDiagnostics(fileName, cleanLines);
-
-      // Release background compilation state flags
-      statusBar.setAnalyzing(false);
+        triggerCodeHighlighting();
+        syncPanelDiagnostics(fileName, cleanLines);
+      } catch (error) {
+        console.error(
+          'CRITICAL: Accessibility background analysis worker crashed:',
+          error,
+        );
+      } finally {
+        // Release analysis locks under any circumstances (crash proof)
+        statusBar.setAnalyzing(false);
+      }
     },
   );
 
