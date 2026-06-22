@@ -7,6 +7,9 @@ import { GameState } from './shared/types';
 
 const STORAGE_KEY = 'vsc-accessibility-gamifier.state';
 
+// Global tracking reference for module lifecycle teardown
+let hungerInterval: NodeJS.Timeout | undefined = undefined;
+
 // VISUAL DECORATION TYPE: Persistent decoration styles for accessibility errors
 const errorLineDecorationType = vscode.window.createTextEditorDecorationType({
   backgroundColor: 'rgba(244, 67, 54, 0.08)', // Soft red whole-line shading
@@ -17,8 +20,15 @@ const errorLineDecorationType = vscode.window.createTextEditorDecorationType({
 
 export function activate(context: vscode.ExtensionContext) {
   let activePanel: MoleWebviewPanel | undefined = undefined;
-  let hungerInterval: NodeJS.Timeout | undefined = undefined;
   const statusBar = new MoleStatusBar();
+
+  // 0. ECO-MODE INITIALIZATION: Determine the true focus state at the exact moment of startup
+  let isEditorFocused = vscode.window.state.focused;
+
+  // Sync initial heartbeat lifecycle state right away
+  if (!isEditorFocused) {
+    statusBar.stopHeartbeat();
+  }
 
   // Reference register to cache line markers of the active session
   const errorsByFileCache: Record<string, number[]> = {};
@@ -127,11 +137,15 @@ export function activate(context: vscode.ExtensionContext) {
     activeEditor.setDecorations(errorLineDecorationType, decorations);
   }
 
-  // 4. INFRASTRUCTURE PIPELINE: Connect CodeWatcher to Engine and ingest direct line coordinates
+  // 4. INFRASTRUCTURE PIPELINE: Connect CodeWatcher to Engine with lazy-evaluation on unfocused stabs
   const watcher = new CodeWatcher(
     context,
     (fileName, errorCount, fixedFoodType, errorLines) => {
-      // Toggle on native spinner rendering inside status bar layout
+      // Skip code evaluation ticks if the IDE is out of focus entirely
+      if (!isEditorFocused) {
+        return;
+      }
+
       statusBar.setAnalyzing(true);
 
       try {
@@ -148,21 +162,21 @@ export function activate(context: vscode.ExtensionContext) {
           error,
         );
       } finally {
-        // Release analysis locks under any circumstances (crash proof)
         statusBar.setAnalyzing(false);
       }
     },
   );
 
-  // 5. TIMER PIPELINE: Instantiate hunger ticker interval (fires every 10 minutes)
-  let isEditorFocused = true;
-
+  // 5. TIMER PIPELINE: Window focus orchestrator controlling background threads entirely
   const windowFocusListener = vscode.window.onDidChangeWindowState(
     (windowState: vscode.WindowState) => {
       isEditorFocused = windowState.focused;
       if (isEditorFocused) {
         statusBar.startHeartbeat();
         statusBar.refresh();
+
+        // Trigger a lazy-sync of decorations upon user return to ensure consistency
+        triggerCodeHighlighting();
       } else {
         statusBar.stopHeartbeat();
       }
@@ -173,7 +187,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   hungerInterval = setInterval(() => {
     if (!isEditorFocused) {
-      return;
+      return; // Absolute metabolic degradation freeze lock
     }
     engine.handleHungerTicker();
   }, TEN_MINUTES_MS);
@@ -181,6 +195,8 @@ export function activate(context: vscode.ExtensionContext) {
   // Synchronize decorations when developer shifts tabs between workspace documents
   const activeEditorListener = vscode.window.onDidChangeActiveTextEditor(
     (editor) => {
+      if (!isEditorFocused) return; // Ignore tracking updates while window remains in cold background cache
+
       if (editor) {
         editor.setDecorations(errorLineDecorationType, []);
         triggerCodeHighlighting();
@@ -206,6 +222,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Listen to active keystroke inputs to flip the Mole status indicator
   const typingListener = vscode.workspace.onDidChangeTextDocument((event) => {
+    if (!isEditorFocused) return;
+
     const activeEditor = vscode.window.activeTextEditor;
     if (activeEditor && event.document === activeEditor.document) {
       const supportedLanguages = ['html', 'vue'];
@@ -250,15 +268,9 @@ export function activate(context: vscode.ExtensionContext) {
     configListener,
     typingListener,
     errorLineDecorationType,
-    {
-      dispose: () => {
-        if (hungerInterval) {
-          clearInterval(hungerInterval);
-        }
-      },
-    },
   );
 
+  // Render initial status tick contextually
   statusBar.update(engine.state);
 }
 
@@ -272,4 +284,13 @@ function handleEngineNotifications(state: GameState, eventType: string): void {
   }
 }
 
-export function deactivate() {}
+// 7. EXTENSION TEARDOWN MECHANICS: Explicit module-level garbage collection
+export function deactivate() {
+  if (hungerInterval) {
+    clearInterval(hungerInterval);
+    hungerInterval = undefined;
+    console.log(
+      'Companion hunger metabolic interval cleared successfully.',
+    );
+  }
+}
