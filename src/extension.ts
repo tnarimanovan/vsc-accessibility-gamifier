@@ -83,25 +83,60 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  // 2. ENGINE COUPLING: Instantiate the engine with recovered state
+  // 2. ENGINE COUPLING: Instantiate the engine with recovered state & multi-window synchronization
   const engine = new GamificationEngine(
     restoredState,
     (updatedState, eventType) => {
-      context.globalState.update(STORAGE_KEY, JSON.stringify(updatedState));
-      statusBar.update(updatedState);
+      // SCENARIO 5: Fetch latest atomic disk cache values to evaluate multi-window save collisions
+      const latestGlobalJson = context.globalState.get<string>(STORAGE_KEY);
+      let finalState = updatedState;
+
+      if (latestGlobalJson) {
+        try {
+          const externalState = JSON.parse(latestGlobalJson) as GameState;
+
+          // Conflict Resolution: If another window pushed ahead, preserve maximum progression bounds
+          if (
+            externalState.level > updatedState.level ||
+            (externalState.level === updatedState.level &&
+              externalState.xp > updatedState.xp)
+          ) {
+            // Layer external values onto current tracking copy
+            updatedState.level = externalState.level;
+            updatedState.stage = externalState.stage;
+            updatedState.xp = externalState.xp;
+            updatedState.neededXp = externalState.neededXp;
+
+            // Mutate runtime state registers directly inside the engine instance
+            engine.state.level = externalState.level;
+            engine.state.stage = externalState.stage;
+            engine.state.xp = externalState.xp;
+            engine.state.neededXp = externalState.neededXp;
+
+            finalState = updatedState;
+          }
+        } catch (e) {
+          console.error('Failed to resolve multi-window collision state:', e);
+        }
+      }
+
+      // Write merged, collision-protected progression state block back into deep storage
+      context.globalState.update(STORAGE_KEY, JSON.stringify(finalState));
+      statusBar.update(finalState);
+
       // IRONCLAD PROTECTION: Create a hard backup snapshot specifically on milestones
       if (eventType === 'LEVEL_UP') {
         context.globalState.update(
           STORAGE_KEY + '.backup',
-          JSON.stringify(updatedState),
+          JSON.stringify(finalState),
         );
       }
 
       if (activePanel) {
-        activePanel.updateGameState(updatedState);
+        activePanel.updateGameState(finalState);
       }
 
-      handleEngineNotifications(updatedState, eventType);
+      handleEngineNotifications(finalState, eventType);
     },
   );
 
@@ -150,6 +185,7 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
+      // Throttling watch execution if current file exceeds processing capacity bounds
       const activeEditor = vscode.window.activeTextEditor;
       if (activeEditor && activeEditor.document.lineCount > 3000) {
         return;
@@ -164,6 +200,8 @@ export function activate(context: vscode.ExtensionContext) {
         errorsByFileCache[fileName] = cleanLines;
 
         triggerCodeHighlighting();
+
+        // Throttle diagnostic packet streams behind panel focus visibility constraints
         if (activePanel && activePanel.isVisible()) {
           syncPanelDiagnostics(fileName, cleanLines);
         }
@@ -201,7 +239,7 @@ export function activate(context: vscode.ExtensionContext) {
       return; // Absolute metabolic degradation freeze lock
     }
 
-    // AFK Protection Gate
+    // AFK Protection Gate evaluating user presence
     const timeSinceLastKeystroke = Date.now() - lastTypingTimestamp;
     if (timeSinceLastKeystroke > TWENTY_MINUTES_MS) {
       console.log(
@@ -245,6 +283,7 @@ export function activate(context: vscode.ExtensionContext) {
       // STANDARD SUPPORTED FLOW: HTML/Vue file is in focus
       editor.setDecorations(errorLineDecorationType, []);
 
+      // Handle large/generated validation protection bounds contextually
       if (editor.document.lineCount > 3000) {
         const giantFileName =
           editor.document.fileName.split(/[\\/]/).pop() || 'unknown';
@@ -298,7 +337,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  // Listen to active keystroke inputs to flip the Mole status indicator
+  // Listen to active keystroke inputs to flip the Mole status indicator and sync presence markers
   const typingListener = vscode.workspace.onDidChangeTextDocument((event) => {
     if (!isEditorFocused) return;
 
@@ -306,6 +345,7 @@ export function activate(context: vscode.ExtensionContext) {
     if (activeEditor && event.document === activeEditor.document) {
       const supportedLanguages = ['html', 'vue'];
       if (supportedLanguages.includes(activeEditor.document.languageId)) {
+        // Sync timestamp values immediately upon user keystrokes to prove physical activity
         lastTypingTimestamp = Date.now();
         statusBar.triggerTypingState();
       }
@@ -323,6 +363,7 @@ export function activate(context: vscode.ExtensionContext) {
           activePanel = undefined;
         });
 
+        // Sync helper method maps standard layout updates
         const forceSyncData = () => {
           if (!activePanel) return;
           activePanel.updateGameState(engine.state);
@@ -337,6 +378,7 @@ export function activate(context: vscode.ExtensionContext) {
           }
         };
 
+        // Direct visibility listener catches back-focus events contextually
         activePanel.onDidChangeVisibility((visible: boolean) => {
           if (visible) {
             forceSyncData();
