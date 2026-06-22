@@ -153,6 +153,12 @@ export function activate(context: vscode.ExtensionContext) {
   const windowFocusListener = vscode.window.onDidChangeWindowState(
     (windowState: vscode.WindowState) => {
       isEditorFocused = windowState.focused;
+      if (isEditorFocused) {
+        statusBar.startHeartbeat();
+        statusBar.refresh();
+      } else {
+        statusBar.stopHeartbeat();
+      }
     },
   );
 

@@ -62,7 +62,7 @@ export class MoleStatusBar {
   /**
    * Main render and orchestration pipeline separating state hierarchies
    */
-  private refresh(): void {
+  public refresh(): void {
     if (!this._lastState) return;
 
     let icon = '$(check-all)';
@@ -115,7 +115,11 @@ export class MoleStatusBar {
     this._statusBarItem.show();
   }
 
-  private startHeartbeat(): void {
+  public startHeartbeat(): void {
+    if (this._heartbeatInterval) {
+      return;
+    }
+
     this._heartbeatInterval = setInterval(() => {
       if (this._isHovered) {
         return;
@@ -128,6 +132,13 @@ export class MoleStatusBar {
 
       this.refresh();
     }, 3000);
+  }
+
+  public stopHeartbeat(): void {
+    if (this._heartbeatInterval) {
+      clearInterval(this._heartbeatInterval);
+      this._heartbeatInterval = undefined;
+    }
   }
 
   /**
