@@ -69,8 +69,14 @@ export class MoleWebviewPanel {
     this._panel.reveal();
   }
 
-  public updateGameState(state: any) {
-    this._panel.webview.postMessage({ type: 'updateState', data: state });
+  public updateGameState(state: any, eventType: string = 'STATE_UPDATE') {
+    this._panel.webview.postMessage({
+      type: 'STATE_UPDATE', 
+      payload: {
+        state,
+        eventType,
+      },
+    });
   }
 
   private _update() {

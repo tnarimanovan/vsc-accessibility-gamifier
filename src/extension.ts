@@ -377,19 +377,13 @@ export function activate(context: vscode.ExtensionContext) {
           activePanel = undefined;
         });
 
-        // Direct visibility listener catches back-focus events contextually
-        activePanel.onDidChangeVisibility((visible: boolean) => {
-          if (visible) {
-            forceSyncData();
-          }
-        });
-
         forceSyncData();
       }
     },
   );
 
-if (typeof vscode.window.registerWebviewPanelSerializer === 'function') {
+  // Serializer
+  if (typeof vscode.window.registerWebviewPanelSerializer === 'function') {
     vscode.window.registerWebviewPanelSerializer('moleHome', {
       async deserializeWebviewPanel(
         webviewPanel: vscode.WebviewPanel,
@@ -402,12 +396,6 @@ if (typeof vscode.window.registerWebviewPanelSerializer === 'function') {
             activePanel = undefined;
           },
         );
-
-        activePanel.onDidChangeVisibility((visible: boolean) => {
-          if (visible) {
-            forceSyncData();
-          }
-        });
 
         forceSyncData();
       },

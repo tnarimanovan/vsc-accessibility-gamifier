@@ -414,8 +414,10 @@
                 const message = event.data;
                 if (!message) return;
 
-                if (message.type === 'updateState') {
-                    render(message.data);
+                if (message.type === 'STATE_UPDATE') {
+                    if (message.payload && message.payload.state) {
+                        render(message.payload.state);
+                    }
                 }
                 else if (message.type === 'DIAGNOSTICS_UPDATE') {
                     renderDiagnostics(message.payload);
