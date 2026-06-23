@@ -56,7 +56,8 @@ export class GamificationEngine {
     this._state.errorCount = currentErrors;
 
     if (this._fileErrorMinima[fileName] === undefined) {
-      this._fileErrorMinima[fileName] = previousErrors;
+      this._fileErrorMinima[fileName] = currentErrors;
+      return
     }
 
     // SCENARIO 1: Errors were eliminated completely or partially fixed (Mole Feeds)
