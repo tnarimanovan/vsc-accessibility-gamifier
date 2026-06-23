@@ -133,4 +133,10 @@ export class GamificationEngine {
 
     this._state.stage = getStageByLevel(this._state.level);
   }
+
+  public clearFileHistory(fileName: string): void {
+    if (this._fileErrorMinima.hasOwnProperty(fileName)) {
+      delete this._fileErrorMinima[fileName];
+    }
+  }
 }

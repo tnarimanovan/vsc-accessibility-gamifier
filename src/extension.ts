@@ -403,6 +403,18 @@ export function activate(context: vscode.ExtensionContext) {
     });
   }
 
+  const closeListener = vscode.workspace.onDidCloseTextDocument((document) => {
+    const fileName = document.fileName.split(/[\\/]/).pop();
+    if (fileName) {
+      engine.clearFileHistory(fileName);
+
+      // Также чистим кэш декораций, чтобы не хранить лишнее
+      if (errorsByFileCache.hasOwnProperty(fileName)) {
+        delete errorsByFileCache[fileName];
+      }
+    }
+  });
+
   // 6. RESOURCE CLEANUP: Track disposables to prevent memory leaks
   context.subscriptions.push(
     openBurrowCommand,
@@ -412,6 +424,7 @@ export function activate(context: vscode.ExtensionContext) {
     activeEditorListener,
     configListener,
     typingListener,
+    closeListener,
     errorLineDecorationType,
   );
 
