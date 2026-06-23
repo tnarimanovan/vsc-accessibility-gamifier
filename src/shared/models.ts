@@ -1,3 +1,4 @@
+import { FoodType } from './food';
 export interface GameState {
   level: number; // Current level (starts at 1)
   stage: number; // Evolution stage (1, 2, 3, or 4)
@@ -7,4 +8,12 @@ export interface GameState {
   combo: number; // Current combo run multiplier (1.0, 1.2, 1.5, 2.0)
   errorCount: number; // Current open file accessibility error count
   fileName: string; // Active document name rendered inside the terminal view
+}
+
+export interface WorkerAnalysisResult {
+  fileName: string;
+  errorCount: number;
+  fixedFoodType?: FoodType;
+  errorLines?: number[];
+  currentViolations: string[];
 }

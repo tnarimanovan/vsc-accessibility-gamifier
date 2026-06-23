@@ -180,7 +180,7 @@ export function activate(context: vscode.ExtensionContext) {
   // 4. INFRASTRUCTURE PIPELINE: Connect CodeWatcher to Engine with lazy-evaluation on unfocused stabs
   const watcher = new CodeWatcher(
     context,
-    (fileName, errorCount, fixedFoodType, errorLines) => {
+    (fileName, errorCount, fixedFoodType, errorLines, currentViolations) => {
       // Skip code evaluation ticks if the IDE is out of focus entirely
       if (!isEditorFocused) {
         return;
@@ -195,6 +195,13 @@ export function activate(context: vscode.ExtensionContext) {
       statusBar.setAnalyzing(true);
 
       try {
+        const cache =
+          context.workspaceState.get<Record<string, string[]>>(
+            'violationCache',
+          ) || {};
+        cache[fileName] = currentViolations || [];
+        context.workspaceState.update('violationCache', cache);
+
         engine.processCodeAnalysis(fileName, errorCount, fixedFoodType);
 
         const cleanLines = errorLines || [];
@@ -202,7 +209,6 @@ export function activate(context: vscode.ExtensionContext) {
 
         triggerCodeHighlighting();
 
-        // Throttle diagnostic packet streams behind panel focus visibility constraints
         if (activePanel && activePanel.isVisible()) {
           syncPanelDiagnostics(fileName, cleanLines);
         }
@@ -215,6 +221,9 @@ export function activate(context: vscode.ExtensionContext) {
         statusBar.setAnalyzing(false);
       }
     },
+    () =>
+      context.workspaceState.get<Record<string, string[]>>('violationCache') ||
+      {},
   );
 
   // 5. TIMER PIPELINE: Window focus orchestrator controlling background threads entirely
@@ -297,7 +306,7 @@ export function activate(context: vscode.ExtensionContext) {
         statusBar.update(engine.state);
 
         vscode.window.showWarningMessage(
-          `🚧 This file is too deep (${editor.document.lineCount} lines)! The Mole refuses to dig here to save CPU resources.`,
+          `This file is too deep (${editor.document.lineCount} lines)! The Mole refuses to dig here to save CPU resources.`,
         );
 
         if (activePanel) {

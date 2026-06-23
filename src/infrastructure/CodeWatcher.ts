@@ -24,7 +24,9 @@ export class CodeWatcher implements vscode.Disposable {
       errorCount: number,
       fixedFoodType?: FoodType,
       errorLines?: number[],
+      currentViolations?: string[],
     ) => void,
+    private readonly getCache: () => Record<string, string[]>,
   ) {
     this.initWorker();
 
@@ -114,12 +116,13 @@ export class CodeWatcher implements vscode.Disposable {
         return;
       }
     }
-
+    const cache = this.getCache();
     if (this.worker) {
       // Offload processing intensive HTML parsing operations with strict architectural metrics
       this.worker.postMessage({
         sourceCode: fileText,
         fileName,
+        previousViolations: cache[fileName] || [],
         lineOffset,
         isVue,
       });

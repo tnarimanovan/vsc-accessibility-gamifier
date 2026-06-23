@@ -12,22 +12,24 @@ if (!port) {
   throw new Error('AccessibilityWorker must be initiated as a Worker Thread');
 }
 
-// In-memory cache to keep track of previous violations per file inside this worker instance
-const violationCache: Record<string, string[]> = {};
-
 port.on(
   'message',
   async (message: {
     sourceCode: string;
     fileName: string;
+    previousViolations: string[];
     lineOffset?: number;
     isVue?: boolean;
   }) => {
-    const { sourceCode, fileName, lineOffset = 0, isVue = false } = message;
-    let dom: JSDOM | null = null;
+    const {
+      sourceCode,
+      fileName,
+      previousViolations = [],
+      lineOffset = 0,
+      isVue = false,
+    } = message;
 
-    // Track previous cache records to avoid breaking FSM state cycles during crashes
-    const previousViolations = violationCache[fileName] || [];
+    let dom: JSDOM | null = null;
 
     try {
       const virtualConsole = new VirtualConsole();
@@ -80,9 +82,8 @@ port.on(
                     // JSDOM uses 1-based indexing, VS Code expects 0-based index references.
                     // Recalibrate lines indexing using structural offsets payload parameters.
                     const vscodeLineIndex = location.startLine - 1 + lineOffset;
-                    if (!errorLines.includes(vscodeLineIndex)) {
+                    if (!errorLines.includes(vscodeLineIndex))
                       errorLines.push(vscodeLineIndex);
-                    }
                   }
                 }
               } catch (selectorError) {
@@ -106,40 +107,34 @@ port.on(
         }
       });
 
-      let fixedFoodType: FoodType | undefined = undefined;
-
       // DELTA CHECK MECHANISM: Evaluate if the developer successfully eliminated a bug
+      let fixedFoodType: FoodType | undefined = undefined;
       if (currentViolations.length < previousViolations.length) {
-        // Find which specific rule ID was resolved since the last save checkpoint
         const resolvedRule = previousViolations.find(
           (id) => !currentViolations.includes(id),
         );
-
         if (resolvedRule) {
-          // Identify the corresponding food item reward (fallback to SNACK if rule unknown)
           fixedFoodType = AXE_RULE_FOOD_MAP[resolvedRule] || FoodType.SNACK;
         }
       }
 
       // Sync current snapshot back into the cache register map
-      violationCache[fileName] = currentViolations;
-
       const response: WorkerAnalysisResult & {
         isParsingError?: boolean;
+        currentViolations: string[];
         errorLines?: number[];
       } = {
         fileName,
         errorCount: currentViolations.length,
         fixedFoodType,
         errorLines,
+        currentViolations,
         isParsingError: false,
       };
 
       port.postMessage(response);
     } catch (error) {
-      console.warn(
-        `[Fault-Tolerant Guardian] Broken markup or parsing crash caught for ${fileName}. Overlooking state cycle step.`,
-      );
+      console.warn(`[Fault-Tolerant Guardian] Error in ${fileName}.`);
 
       // FAULT-TOLERANT ESCAPE ROUTE:
       // Instead of forcing errorCount: 1, mirror the historical cache length.
@@ -147,11 +142,13 @@ port.on(
       const errorResponse: WorkerAnalysisResult & {
         isParsingError?: boolean;
         errorLines?: number[];
+        currentViolations: string[];
       } = {
         fileName,
         errorCount: previousViolations.length,
         fixedFoodType: undefined,
         errorLines: [],
+        currentViolations: previousViolations, // Возвращаем старый кэш при ошибке
         isParsingError: true,
       };
 
