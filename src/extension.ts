@@ -3,7 +3,8 @@ import { GamificationEngine } from './core/GamificationEngine';
 import { MoleWebviewPanel } from './presentation/MoleWebviewPanel';
 import { MoleStatusBar } from './presentation/MoleStatusBar';
 import { CodeWatcher } from './infrastructure/CodeWatcher';
-import { GameState } from './shared/types';
+import { GameState } from './shared/models';
+import { GAME_BALANCE } from './shared/gameConstants';
 
 const STORAGE_KEY = 'vsc-accessibility-gamifier.state';
 
@@ -32,7 +33,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Tracking human physical presence at the workstation
   let lastTypingTimestamp = Date.now();
-  const TWENTY_MINUTES_MS = 20 * 60 * 1000;
+  const TWENTY_MINUTES_MS = GAME_BALANCE.AFK_TIMEOUT_MS;
 
   // Reference register to cache line markers of the active session
   const errorsByFileCache: Record<string, number[]> = {};
@@ -232,7 +233,7 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
-  const TEN_MINUTES_MS = 10 * 60 * 1000;
+  const TEN_MINUTES_MS = GAME_BALANCE.HUNGER_DECAY_INTERVAL_MS;
 
   hungerInterval = setInterval(() => {
     if (!isEditorFocused) {

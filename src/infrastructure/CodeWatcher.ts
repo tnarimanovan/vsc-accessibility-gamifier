@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { Worker } from 'worker_threads';
-import { FoodType } from '../shared/types';
+import { FoodType } from '../shared/food';
 
 /**
  * Defines the structural payload contract emitted from the background Accessibility worker thread

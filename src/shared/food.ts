@@ -1,4 +1,20 @@
-import { FoodType } from '../shared/types';
+export enum FoodType {
+  SNACK = 'SNACK',
+  LUNCH = 'LUNCH',
+  DELICACY = 'DELICACY',
+}
+
+export interface FoodReward {
+  xp: number;
+  satiety: number;
+}
+
+export const FOOD_REWARDS: Record<FoodType, FoodReward> = {
+  [FoodType.SNACK]: { xp: 5, satiety: 10 },
+  [FoodType.LUNCH]: { xp: 20, satiety: 25 },
+  [FoodType.DELICACY]: { xp: 50, satiety: 40 },
+};
+
 /**
  * Rule Mapping: Maps Axe-Core Rule IDs to our strategic game food matrix
  */

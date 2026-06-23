@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { GameState } from '../shared/types';
+import { GameState } from '../shared/models';
 
 export class MoleStatusBar {
   private _statusBarItem: vscode.StatusBarItem;

@@ -1,9 +1,8 @@
 import { parentPort } from 'worker_threads';
 import { JSDOM, VirtualConsole } from 'jsdom';
-import { FoodType } from '../shared/types';
 import { WorkerAnalysisResult } from './CodeWatcher';
 import { AXE_PROFILES, filterViolationsByFileType } from '../shared/axeConfig';
-import { AXE_RULE_FOOD_MAP } from '../shared/foodMap';
+import { FoodType, AXE_RULE_FOOD_MAP } from '../shared/food';
 
 // @ts-ignore
 import axeCode from './axe.min.js';

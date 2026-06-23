@@ -1,4 +1,7 @@
-import { GameState, FoodType, FOOD_REWARDS } from '../shared/types';
+import { GameState } from '../shared/models';
+import { FoodType, FOOD_REWARDS } from '../shared/food';
+import { getStageByLevel } from '../shared/evolutionConfig';
+import { GAME_BALANCE } from '../shared/gameConstants';
 
 export class GamificationEngine {
   private _state: GameState;
@@ -36,7 +39,9 @@ export class GamificationEngine {
       this._state.satiety = Math.max(0, this._state.satiety - 1);
 
       const eventType =
-        this._state.satiety < 30 ? 'MOLE_STARVING' : 'SATIETY_DROP';
+        this._state.satiety < GAME_BALANCE.STARVING_THRESHOLD
+          ? 'MOLE_STARVING'
+          : 'SATIETY_DROP';
       this._onStateChange(this.state, eventType);
     }
   }
@@ -89,7 +94,10 @@ export class GamificationEngine {
     const calculatedXpGain = Math.round(reward.xp * this._state.combo);
 
     this._state.xp += calculatedXpGain;
-    this._state.satiety = Math.min(100, this._state.satiety + reward.satiety);
+    this._state.satiety = Math.min(
+      GAME_BALANCE.MAX_SATIETY,
+      this._state.satiety + reward.satiety,
+    );
 
     this.advanceComboCounter();
 
@@ -106,9 +114,12 @@ export class GamificationEngine {
   }
 
   private advanceComboCounter(): void {
-    if (this._state.combo === 1.0) this._state.combo = 1.2;
-    else if (this._state.combo === 1.2) this._state.combo = 1.5;
-    else if (this._state.combo === 1.5) this._state.combo = 2.0;
+    const multipliers = GAME_BALANCE.COMBO_MULTIPLIERS;
+    const currentIndex = multipliers.indexOf(this._state.combo);
+
+    if (currentIndex !== -1 && currentIndex < multipliers.length - 1) {
+      this._state.combo = multipliers[currentIndex + 1];
+    }
   }
 
   private executeLevelUp(): void {
@@ -116,17 +127,10 @@ export class GamificationEngine {
     this._state.xp = Math.max(0, this._state.xp - this._state.neededXp);
 
     // Progressive difficulty formula: Every level demands 20% more XP than the previous one
-    this._state.neededXp = Math.round(this._state.neededXp * 1.2);
+    this._state.neededXp = Math.round(
+      this._state.neededXp * GAME_BALANCE.XP_GROWTH_MULTIPLIER,
+    );
 
-    // Calculate structural evolution milestones (Your 4 Stages Plan)
-    if (this._state.level >= 13) {
-      this._state.stage = 4; // Accessibility Architect
-    } else if (this._state.level >= 8) {
-      this._state.stage = 3; // Senior Mole Dev
-    } else if (this._state.level >= 4) {
-      this._state.stage = 2; // Junior Mole Dev
-    } else {
-      this._state.stage = 1; // Mole Intern
-    }
+    this._state.stage = getStageByLevel(this._state.level);
   }
 }
