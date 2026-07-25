@@ -5,10 +5,13 @@ import { MOLE_ASSETS_MAP } from '../shared/moleAssets';
 export class MoleWebviewPanel {
   private readonly _panel: vscode.WebviewPanel;
   private _disposables: vscode.Disposable[] = [];
+  private _isDisposed = false;
+  private _onReadyCallback?: () => void;
 
   public static create(
     extensionUri: vscode.Uri,
     onDispose: () => void,
+    onReady?: () => void,
   ): MoleWebviewPanel {
     const column = vscode.window.activeTextEditor
       ? vscode.window.activeTextEditor.viewColumn
@@ -25,7 +28,9 @@ export class MoleWebviewPanel {
       },
     );
 
-    return new MoleWebviewPanel(panel, extensionUri, onDispose);
+    const instance = new MoleWebviewPanel(panel, extensionUri, onDispose);
+    instance._onReadyCallback = onReady;
+    return instance;
   }
 
   private constructor(
@@ -48,14 +53,20 @@ export class MoleWebviewPanel {
     // Listen to IPC message events coming up from the UI frontend layer
     this._panel.webview.onDidReceiveMessage(
       async (message) => {
+        if (this._isDisposed) return;
+
         switch (message.type) {
           case 'TOGGLE_HIGHLIGHTING': {
             const isEnabled = message.payload.enabled;
-
-            // Programmatically update the user's workspace profile configuration settings
             await vscode.workspace
               .getConfiguration('accessibilityMole')
               .update('enableCodeHighlighting', isEnabled, true);
+            break;
+          }
+          case 'UI_READY': {
+            if (this._onReadyCallback) {
+              this._onReadyCallback();
+            }
             break;
           }
         }
@@ -66,12 +77,15 @@ export class MoleWebviewPanel {
   }
 
   public reveal() {
+    if (this._isDisposed) return;
     this._panel.reveal();
   }
 
   public updateGameState(state: any, eventType: string = 'STATE_UPDATE') {
+    if (this._isDisposed) return;
+
     this._panel.webview.postMessage({
-      type: 'STATE_UPDATE', 
+      type: 'STATE_UPDATE',
       payload: {
         state,
         eventType,
@@ -80,6 +94,7 @@ export class MoleWebviewPanel {
   }
 
   private _update() {
+    if (this._isDisposed) return;
     this._panel.webview.html = this._getHtmlForWebview();
   }
 
@@ -100,13 +115,11 @@ export class MoleWebviewPanel {
 
     try {
       let htmlContent = fs.readFileSync(htmlUri.fsPath, 'utf8');
-
       const resolvedAssets: Record<number, Record<string, string>> = {};
 
       for (const [stage, moods] of Object.entries(MOLE_ASSETS_MAP)) {
         const stageNum = Number(stage);
         resolvedAssets[stageNum] = {};
-
         for (const [mood, fileName] of Object.entries(moods)) {
           resolvedAssets[stageNum][mood] = mediaUri(fileName);
         }
@@ -121,35 +134,28 @@ export class MoleWebviewPanel {
       htmlContent = htmlContent.replace('</head>', `${imagesScript}</head>`);
       return htmlContent;
     } catch (error) {
-      return `
-        <!DOCTYPE html>
-        <html>
-        <body>
-          <h2>Error loading interface template!</h2>
-          <p>${error}</p>
-        </body>
-        </html>
-      `;
+      return `<!DOCTYPE html><html><body><h2>Error loading interface template!</h2><p>${error}</p></body></html>`;
     }
   }
 
   public sendDocumentDiagnostics(fileName: string, errorLines: number[]): void {
-    if (this._panel) {
-      this._panel.webview.postMessage({
-        type: 'DIAGNOSTICS_UPDATE',
-        payload: {
-          fileName,
-          errorLines,
-        },
-      });
-    }
+    if (this._isDisposed || !this._panel) return;
+    this._panel.webview.postMessage({
+      type: 'DIAGNOSTICS_UPDATE',
+      payload: {
+        fileName,
+        errorLines,
+      },
+    });
   }
 
   public isVisible(): boolean {
+    if (this._isDisposed) return false;
     return this._panel.visible;
   }
 
   public onDidChangeVisibility(callback: (visible: boolean) => void) {
+    if (this._isDisposed) return;
     this._panel.onDidChangeViewState(
       (e) => callback(e.webviewPanel.visible),
       null,
@@ -161,11 +167,17 @@ export class MoleWebviewPanel {
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
     onDispose: () => void,
+    onReady?: () => void,
   ): MoleWebviewPanel {
-    return new MoleWebviewPanel(panel, extensionUri, onDispose);
+    const instance = new MoleWebviewPanel(panel, extensionUri, onDispose);
+    instance._onReadyCallback = onReady;
+    return instance;
   }
 
   public dispose() {
+    if (this._isDisposed) return;
+    this._isDisposed = true;
+
     this._panel.dispose();
     while (this._disposables.length) {
       const x = this._disposables.pop();

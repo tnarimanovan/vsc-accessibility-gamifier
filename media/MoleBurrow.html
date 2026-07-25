@@ -40,6 +40,12 @@
             padding: 1.5rem;
             box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
             box-sizing: border-box;
+            opacity: 0;
+            transition: opacity 0.25s ease-in-out;
+        }
+
+        .mole-app--active {
+            opacity: 1;
         }
 
         .mole-app__header {
@@ -93,26 +99,38 @@
         }
 
         .mole-app__avatar-ctx {
-            width: 400px;
-            height: 400px;
+            width: 320px;
+            height: 320px;
             margin: 0 auto 1.5rem auto;
             border-radius: 12px;
             overflow: hidden;
             display: flex;
             justify-content: center;
             align-items: center;
+            position: relative;
         }
 
         .mole-app__img {
             width: 100%;
             height: 100%;
             object-fit: contain;
-            will-change: transform;
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            will-change: transform, opacity;
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease-in-out;
+            opacity: 1;
+        }
+
+        .mole-app__avatar-ctx--evolution .mole-app__img {
+            transform: scale(1.15);
+            filter: brightness(1.25) drop-shadow(0 0 20px var(--mb-accent));
+        }
+
+        .mole-app__avatar-ctx--transition .mole-app__img {
+            opacity: 0.1;
+            transform: scale(0.95);
         }
 
         .mole-app__avatar-ctx:hover .mole-app__img {
-            transform: scale(1.03);
+            transform: scale(1.04);
         }
 
         .mole-metric {
@@ -140,7 +158,7 @@
             height: 100%;
             width: 0%;
             border-radius: 4px;
-            transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .mole-metric__bar--xp {
@@ -189,16 +207,16 @@
 
 <body>
 
-    <main class="mole-app" aria-label="Mole Accessibility Companion Dashboard">
+    <main id="app-container" class="mole-app" aria-label="Mole Accessibility Companion Dashboard">
         <header class="mole-app__header">
-            <p id="view-stage" class="mole-app__stage">Loading State...</p>
+            <p id="view-stage" class="mole-app__stage">Connecting...</p>
             <h1 id="view-level" class="mole-app__level">Level 0</h1>
             <button id="toggle-highlight-btn" class="mole-app__toggle-btn mole-app__toggle-btn--active">
                 HIGHLIGHTS: ON
             </button>
         </header>
 
-        <div class="mole-app__avatar-ctx">
+        <div id="avatar-container" class="mole-app__avatar-ctx">
             <img id="view-avatar" class="mole-app__img" src="" alt="Mole Companion Profile">
         </div>
 
@@ -239,9 +257,11 @@
             const vscode = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null;
 
             const nodes = {
+                app: document.getElementById('app-container'),
                 stage: document.getElementById('view-stage'),
                 level: document.getElementById('view-level'),
                 avatar: document.getElementById('view-avatar'),
+                avatarCtx: document.getElementById('avatar-container'),
                 xpText: document.getElementById('view-xp-text'),
                 xpBar: document.getElementById('view-xp-bar'),
                 satietyText: document.getElementById('view-satiety-text'),
@@ -262,6 +282,7 @@
             let previousErrorCount = 0;
             let isHighlightEnabled = true;
             let currentCachedDiagnostics = null;
+            let currentAssetSrc = '';
 
             nodes.toggleBtn.addEventListener('click', () => {
                 isHighlightEnabled = !isHighlightEnabled;
@@ -287,6 +308,8 @@
 
             function render(state) {
                 if (!state) return;
+
+                nodes.app.classList.add('mole-app--active');
 
                 // 1. DOM Text Updates
                 const targetLevelText = `Level ${state.level || 1}`;
@@ -314,7 +337,7 @@
                 nodes.satietyBar.style.width = `${satiety}%`;
                 nodes.satietyBar.setAttribute('aria-valuenow', satiety);
 
-                // 4. Companion Asset Resolvers & Dynamic Terminal Context Calculations
+                // 4. Companion Asset Resolvers
                 if (window.MOLE_ASSETS) {
                     let assetKey = 'bored';
                     let altDesc = 'Your Mole companion rests peacefully in a clean, accessible burrow.';
@@ -323,7 +346,6 @@
                     let logText = `> [SUCCESS] 100% WCAG criteria met. Code is fully edible!`;
                     let logColor = 'var(--mb-success)';
 
-                    // Evaluate state boundaries to compile correct contextual output blocks
                     if (state.errorCount > 0) {
                         assetKey = 'thinking';
                         altDesc = `Your Mole companion looking confused because ${state.errorCount} accessibility bugs were detected.`;
@@ -371,7 +393,7 @@
                         renderDiagnostics(currentCachedDiagnostics);
                     }
 
-                    // Step B: Resolve final URI paths using Professor's multi-tier evolution map
+                    // Resolve final URI paths
                     const currentStageKey = state.stage || 1;
                     let targetSrc = '';
 
@@ -381,8 +403,22 @@
                         targetSrc = window.MOLE_ASSETS[1]['bored'];
                     }
 
-                    if (nodes.avatar.src !== targetSrc) {
-                        nodes.avatar.src = targetSrc;
+                    if (currentAssetSrc !== targetSrc) {
+                        currentAssetSrc = targetSrc;
+
+                        if (messagePayload && messagePayload.eventType === 'LEVEL_UP') {
+                            nodes.avatarCtx.classList.add('mole-app__avatar-ctx--evolution');
+                            nodes.avatar.src = targetSrc;
+                            setTimeout(() => {
+                                nodes.avatarCtx.classList.remove('mole-app__avatar-ctx--evolution');
+                            }, 600);
+                        } else {
+                            nodes.avatarCtx.classList.add('mole-app__avatar-ctx--transition');
+                            setTimeout(() => {
+                                nodes.avatar.src = targetSrc;
+                                nodes.avatarCtx.classList.remove('mole-app__avatar-ctx--transition');
+                            }, 180);
+                        }
                     }
 
                     nodes.avatar.alt = altDesc;
@@ -406,8 +442,10 @@
                     innerHTML += `<span class="mole-diagnostics__item"> └─ 🔴 Line ${humanRowNumber}: Accessibility fix required</span>`;
                 });
 
-               nodes.bugContainer.innerHTML = innerHTML;
+                nodes.bugContainer.innerHTML = innerHTML;
             }
+
+            let messagePayload = null; 
 
             // Initialize System Event Bridge Router
             window.addEventListener('message', (event) => {
@@ -416,6 +454,7 @@
 
                 if (message.type === 'STATE_UPDATE') {
                     if (message.payload && message.payload.state) {
+                        messagePayload = message.payload;
                         render(message.payload.state);
                     }
                 }
@@ -424,14 +463,10 @@
                 }
             });
 
-            render({
-                level: 1,
-                stage: 1,
-                xp: 0,
-                neededXp: 100,
-                satiety: 100,
-                errorCount: 0,
-                fileName: 'none'
+            window.addEventListener('DOMContentLoaded', () => {
+                if (vscode) {
+                    vscode.postMessage({ type: 'UI_READY' });
+                }
             });
         })();
     </script>

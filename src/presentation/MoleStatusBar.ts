@@ -116,18 +116,12 @@ export class MoleStatusBar {
   }
 
   public startHeartbeat(): void {
-    if (this._heartbeatInterval) {
-      return;
-    }
+    if (this._heartbeatInterval) return;
 
     this._heartbeatInterval = setInterval(() => {
-      if (this._isHovered) {
-        return;
-      }
+      if (this._isHovered) return;
 
       this._animationFrame++;
-
-      // MICRO-EVENTS TIMELINE PROCESSING: Handle active lifecycles or roll for new instances
       this.handleMicroEventsRolls();
 
       this.refresh();
@@ -239,9 +233,15 @@ export class MoleStatusBar {
   }
 
   public dispose(): void {
-    if (this._heartbeatInterval) clearInterval(this._heartbeatInterval);
-    if (this._typingTimeout) clearTimeout(this._typingTimeout);
-    if (this._hoverTimeout) clearTimeout(this._hoverTimeout);
+    this.stopHeartbeat();
+    if (this._typingTimeout) {
+      clearTimeout(this._typingTimeout);
+      this._typingTimeout = undefined;
+    }
+    if (this._hoverTimeout) {
+      clearTimeout(this._hoverTimeout);
+      this._hoverTimeout = undefined;
+    }
     this._statusBarItem.dispose();
   }
 }

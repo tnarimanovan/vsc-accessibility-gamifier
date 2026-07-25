@@ -8,9 +8,6 @@ import { GAME_BALANCE } from './shared/gameConstants';
 
 const STORAGE_KEY = 'vsc-accessibility-gamifier.state';
 
-// Global tracking reference for module lifecycle teardown
-let hungerInterval: NodeJS.Timeout | undefined = undefined;
-
 // VISUAL DECORATION TYPE: Persistent decoration styles for accessibility errors
 const errorLineDecorationType = vscode.window.createTextEditorDecorationType({
   backgroundColor: 'rgba(244, 67, 54, 0.08)', // Soft red whole-line shading
@@ -20,6 +17,10 @@ const errorLineDecorationType = vscode.window.createTextEditorDecorationType({
 });
 
 export function activate(context: vscode.ExtensionContext) {
+  // SYSTEM TELEMETRY CHANNEL: Creating dedicated output channel for non-intrusive auditing
+  const logChannel = vscode.window.createOutputChannel("Mole's Burrow Log");
+  logChannel.appendLine('[System] Orchestrator successfully initialized.');
+
   let activePanel: MoleWebviewPanel | undefined = undefined;
   const statusBar = new MoleStatusBar();
 
@@ -31,14 +32,10 @@ export function activate(context: vscode.ExtensionContext) {
     statusBar.stopHeartbeat();
   }
 
-  // Tracking human physical presence at the workstation
   let lastTypingTimestamp = Date.now();
   const TWENTY_MINUTES_MS = GAME_BALANCE.AFK_TIMEOUT_MS;
-
-  // Reference register to cache line markers of the active session
   const errorsByFileCache: Record<string, number[]> = {};
 
-  // Helper to safely push fresh errors into the webview component
   function syncPanelDiagnostics(fileName: string, errorLines: number[]) {
     if (
       activePanel &&
@@ -48,7 +45,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  // 1. PERSISTENCE STORAGE LAYER: Recover saved state from VS Code storage engine
+  // 1. PERSISTENCE STORAGE LAYER: Recover saved state with recovery fallbacks
   const savedStateJson = context.globalState.get<string>(STORAGE_KEY);
   let restoredState: GameState | undefined = undefined;
 
@@ -56,12 +53,9 @@ export function activate(context: vscode.ExtensionContext) {
     try {
       restoredState = JSON.parse(savedStateJson);
     } catch (e) {
-      console.error(
-        'Main state corrupted, attempting critical backup recovery protocol...',
-        e,
+      logChannel.appendLine(
+        '[Persistence] Main state corrupted. Initiating critical backup protocol...',
       );
-
-      // CRITICAL FALLBACK: Try to rescue the Mole from the immutable backup key
       const backupStateJson = context.globalState.get<string>(
         STORAGE_KEY + '.backup',
       );
@@ -72,9 +66,8 @@ export function activate(context: vscode.ExtensionContext) {
             'Mole progress file was corrupted, but we successfully restored your level from a backup!',
           );
         } catch (backupErr) {
-          console.error(
-            'Critical failure: Backup storage layer is also corrupted:',
-            backupErr,
+          logChannel.appendLine(
+            `[Critical] Backup layer corrupted: ${backupErr}`,
           );
           vscode.window.showErrorMessage(
             'Critical anomaly: All Mole burrow save files are corrupted.',
@@ -84,79 +77,67 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  // 2. ENGINE COUPLING: Instantiate the engine with recovered state & multi-window synchronization
+  // 2. ENGINE COUPLING: Instantiate deterministic game core
   const engine = new GamificationEngine(
     restoredState,
     (updatedState, eventType) => {
-      // SCENARIO 5: Fetch latest atomic disk cache values to evaluate multi-window save collisions
       const latestGlobalJson = context.globalState.get<string>(STORAGE_KEY);
       let finalState = updatedState;
 
       if (latestGlobalJson) {
         try {
           const externalState = JSON.parse(latestGlobalJson) as GameState;
-
-          // Conflict Resolution: If another window pushed ahead, preserve maximum progression bounds
           if (
             externalState.level > updatedState.level ||
             (externalState.level === updatedState.level &&
               externalState.xp > updatedState.xp)
           ) {
-            // Layer external values onto current tracking copy
             updatedState.level = externalState.level;
             updatedState.stage = externalState.stage;
             updatedState.xp = externalState.xp;
             updatedState.neededXp = externalState.neededXp;
 
-            // Mutate runtime state registers directly inside the engine instance
             engine.state.level = externalState.level;
             engine.state.stage = externalState.stage;
             engine.state.xp = externalState.xp;
             engine.state.neededXp = externalState.neededXp;
-
             finalState = updatedState;
           }
         } catch (e) {
-          console.error('Failed to resolve multi-window collision state:', e);
+          logChannel.appendLine(`[Collision] Engine resolution error: ${e}`);
         }
       }
 
-      // Write merged, collision-protected progression state block back into deep storage
       context.globalState.update(STORAGE_KEY, JSON.stringify(finalState));
       statusBar.update(finalState);
 
-      // IRONCLAD PROTECTION: Create a hard backup snapshot specifically on milestones
       if (eventType === 'LEVEL_UP') {
         context.globalState.update(
           STORAGE_KEY + '.backup',
           JSON.stringify(finalState),
+        );
+        vscode.window.showInformationMessage(
+          `Level Up! Your Mole evolved to Level ${finalState.level}!`,
         );
       }
 
       if (activePanel) {
         activePanel.updateGameState(finalState);
       }
-
-      handleEngineNotifications(updatedState, eventType);
     },
   );
 
-  // 3. VISUAL ENGINE PIPELINE: Local orchestration
   function triggerCodeHighlighting() {
     const activeEditor = vscode.window.activeTextEditor;
-    if (!activeEditor) {
-      return;
-    }
+    if (!activeEditor) return;
 
     const currentFileName =
       activeEditor.document.fileName.split(/[\\/]/).pop() || 'unknown';
-
     const config = vscode.workspace.getConfiguration('accessibilityMole');
     const isHighlightingEnabled = config.get<boolean>(
       'enableCodeHighlighting',
       true,
     );
-
     const fileErrorLines = errorsByFileCache[currentFileName] || [];
 
     if (!isHighlightingEnabled || fileErrorLines.length === 0) {
@@ -173,26 +154,22 @@ export function activate(context: vscode.ExtensionContext) {
         decorations.push({ range });
       }
     }
-
     activeEditor.setDecorations(errorLineDecorationType, decorations);
   }
 
-  // 4. INFRASTRUCTURE PIPELINE: Connect CodeWatcher to Engine with lazy-evaluation on unfocused stabs
+  // 4. INFRASTRUCTURE PIPELINE: Connect Worker to Engine
   const watcher = new CodeWatcher(
     context,
     (fileName, errorCount, fixedFoodType, errorLines, currentViolations) => {
-      // Skip code evaluation ticks if the IDE is out of focus entirely
-      if (!isEditorFocused) {
-        return;
-      }
+      if (!isEditorFocused) return;
 
-      // Throttling watch execution if current file exceeds processing capacity bounds
       const activeEditor = vscode.window.activeTextEditor;
-      if (activeEditor && activeEditor.document.lineCount > 3000) {
-        return;
-      }
+      if (activeEditor && activeEditor.document.lineCount > 3000) return;
 
       statusBar.setAnalyzing(true);
+      logChannel.appendLine(
+        `[Analysis] Processing trace signals for target file: ${fileName}`,
+      );
 
       try {
         const cache =
@@ -203,7 +180,6 @@ export function activate(context: vscode.ExtensionContext) {
         context.workspaceState.update('violationCache', cache);
 
         engine.processCodeAnalysis(fileName, errorCount, fixedFoodType);
-
         const cleanLines = errorLines || [];
         errorsByFileCache[fileName] = cleanLines;
 
@@ -213,10 +189,7 @@ export function activate(context: vscode.ExtensionContext) {
           syncPanelDiagnostics(fileName, cleanLines);
         }
       } catch (error) {
-        console.error(
-          'CRITICAL: Accessibility background analysis worker crashed:',
-          error,
-        );
+        logChannel.appendLine(`[Critical] Analysis runtime error: ${error}`);
       } finally {
         statusBar.setAnalyzing(false);
       }
@@ -226,15 +199,16 @@ export function activate(context: vscode.ExtensionContext) {
       {},
   );
 
-  // 5. TIMER PIPELINE: Window focus orchestrator controlling background threads entirely
+  // 5. TIMER PIPELINE: Focus listener and metabolic decay setup
   const windowFocusListener = vscode.window.onDidChangeWindowState(
     (windowState: vscode.WindowState) => {
       isEditorFocused = windowState.focused;
+      logChannel.appendLine(
+        `[System] Context shift. Window focused segment state = ${isEditorFocused}`,
+      );
       if (isEditorFocused) {
         statusBar.startHeartbeat();
         statusBar.refresh();
-
-        // Trigger a lazy-sync of decorations upon user return to ensure consistency
         triggerCodeHighlighting();
       } else {
         statusBar.stopHeartbeat();
@@ -243,32 +217,32 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   const TEN_MINUTES_MS = GAME_BALANCE.HUNGER_DECAY_INTERVAL_MS;
+  const hungerTimerInstance = setInterval(() => {
+    if (!isEditorFocused) return;
 
-  hungerInterval = setInterval(() => {
-    if (!isEditorFocused) {
-      return; // Absolute metabolic degradation freeze lock
-    }
-
-    // AFK Protection Gate evaluating user presence
     const timeSinceLastKeystroke = Date.now() - lastTypingTimestamp;
     if (timeSinceLastKeystroke > TWENTY_MINUTES_MS) {
-      console.log(
-        '🔗 [AFK Protection]: Developer is away from keyboard. Hunger ticker frozen.',
+      logChannel.appendLine(
+        '🔗 [AFK Protection]: Developer state idle. Hunger loop frozen.',
       );
       return;
     }
-
     engine.handleHungerTicker();
   }, TEN_MINUTES_MS);
 
-  // Synchronize decorations and companion states when developer shifts tabs between workspace documents
+  // ZERO LEAK MECHANIC: Explicitly wrapping interval into an automatic disposable registration scope
+  const hungerTimerDisposable = new vscode.Disposable(() => {
+    clearInterval(hungerTimerInstance);
+    logChannel.appendLine(
+      '[Teardown] Volatile metabolic engine interval garbage-collected.',
+    );
+  });
+
   const activeEditorListener = vscode.window.onDidChangeActiveTextEditor(
     (editor) => {
-      if (!isEditorFocused) return; // Ignore tracking updates while window remains in cold background cache
+      if (!isEditorFocused) return;
 
-      // SCENARIO 2: Zero tabs open layout (Empty workspace window view)
       if (!editor) {
-        // Safe reset: clear highlights and force the engine back into a clean idle state
         engine.processCodeAnalysis('none', 0, undefined);
         statusBar.update(engine.state);
         return;
@@ -277,12 +251,8 @@ export function activate(context: vscode.ExtensionContext) {
       const supportedLanguages = ['html', 'vue'];
       const currentLanguageId = editor.document.languageId;
 
-      // SCENARIO 1: Switching to unsupported development files (e.g., .css, .json, .ts)
       if (!supportedLanguages.includes(currentLanguageId)) {
-        // Remove existing red lines decoration layer from the view first
         editor.setDecorations(errorLineDecorationType, []);
-
-        // Force-sync state into 0 bugs to shift the Mole into a peaceful resting state
         const fallbackName =
           editor.document.fileName.split(/[\\/]/).pop() || 'unknown';
         engine.processCodeAnalysis(fallbackName, 0, undefined);
@@ -290,40 +260,28 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      // STANDARD SUPPORTED FLOW: HTML/Vue file is in focus
       editor.setDecorations(errorLineDecorationType, []);
 
-      // Handle large/generated validation protection bounds contextually
       if (editor.document.lineCount > 3000) {
         const giantFileName =
           editor.document.fileName.split(/[\\/]/).pop() || 'unknown';
-
         engine.processCodeAnalysis(
           `${giantFileName} (Too Deep!)`,
           0,
           undefined,
         );
         statusBar.update(engine.state);
-
         vscode.window.showWarningMessage(
-          `This file is too deep (${editor.document.lineCount} lines)! The Mole refuses to dig here to save CPU resources.`,
+          `File too deep (${editor.document.lineCount} lines)! Core analysis skipped to save CPU.`,
         );
-
-        if (activePanel) {
-          activePanel.updateGameState(engine.state);
-        }
         return;
       }
 
       triggerCodeHighlighting();
-
       const currentFileName =
         editor.document.fileName.split(/[\\/]/).pop() || 'unknown';
-
-      // Request matching cached values or fallback to empty state
       const cachedFileLines = errorsByFileCache[currentFileName] || [];
 
-      // Update engine error count state based on current cache before syncing UI
       engine.processCodeAnalysis(
         currentFileName,
         cachedFileLines.length,
@@ -338,7 +296,6 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
-  // React instantly to runtime configuration changes sent from Webview panel toggle buttons
   const configListener = vscode.workspace.onDidChangeConfiguration((event) => {
     if (
       event.affectsConfiguration('accessibilityMole.enableCodeHighlighting')
@@ -347,15 +304,11 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  // Listen to active keystroke inputs to flip the Mole status indicator and sync presence markers
   const typingListener = vscode.workspace.onDidChangeTextDocument((event) => {
     if (!isEditorFocused) return;
-
     const activeEditor = vscode.window.activeTextEditor;
     if (activeEditor && event.document === activeEditor.document) {
-      const supportedLanguages = ['html', 'vue'];
-      if (supportedLanguages.includes(activeEditor.document.languageId)) {
-        // Sync timestamp values immediately upon user keystrokes to prove physical activity
+      if (['html', 'vue'].includes(activeEditor.document.languageId)) {
         lastTypingTimestamp = Date.now();
         statusBar.triggerTypingState();
       }
@@ -376,7 +329,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
   };
 
-  // Register command to manually reveal the Mole's Burrow panel view
   const openBurrowCommand = vscode.commands.registerCommand(
     'vsc-accessibility-gamifier.openBurrow',
     () => {
@@ -386,13 +338,11 @@ export function activate(context: vscode.ExtensionContext) {
         activePanel = MoleWebviewPanel.create(context.extensionUri, () => {
           activePanel = undefined;
         });
-
         forceSyncData();
       }
     },
   );
 
-  // Serializer
   if (typeof vscode.window.registerWebviewPanelSerializer === 'function') {
     vscode.window.registerWebviewPanelSerializer('moleHome', {
       async deserializeWebviewPanel(
@@ -406,7 +356,6 @@ export function activate(context: vscode.ExtensionContext) {
             activePanel = undefined;
           },
         );
-
         forceSyncData();
       },
     });
@@ -416,20 +365,20 @@ export function activate(context: vscode.ExtensionContext) {
     const fileName = document.fileName.split(/[\\/]/).pop();
     if (fileName) {
       engine.clearFileHistory(fileName);
-
-      // Также чистим кэш декораций, чтобы не хранить лишнее
       if (errorsByFileCache.hasOwnProperty(fileName)) {
         delete errorsByFileCache[fileName];
       }
     }
   });
 
-  // 6. RESOURCE CLEANUP: Track disposables to prevent memory leaks
+  // 6. RESOURCE CLEANUP REGISTRATION: All modules linked to root context tree
   context.subscriptions.push(
+    logChannel,
     openBurrowCommand,
     watcher,
     statusBar,
     windowFocusListener,
+    hungerTimerDisposable, // Fully safe garbage collection tracking registration
     activeEditorListener,
     configListener,
     typingListener,
@@ -437,25 +386,9 @@ export function activate(context: vscode.ExtensionContext) {
     errorLineDecorationType,
   );
 
-  // Render initial status tick contextually
   statusBar.update(engine.state);
 }
 
-function handleEngineNotifications(state: GameState, eventType: string): void {
-  switch (eventType) {
-    case 'LEVEL_UP':
-      vscode.window.showInformationMessage(
-        `Level Up! Your Mole evolved to Level ${state.level}! Check its new gear!`,
-      );
-      break;
-  }
-}
-
-// 7. EXTENSION TEARDOWN MECHANICS: Explicit module-level garbage collection
 export function deactivate() {
-  if (hungerInterval) {
-    clearInterval(hungerInterval);
-    hungerInterval = undefined;
-    console.log('Companion hunger metabolic interval cleared successfully.');
-  }
+  // context.subscriptions automatically clean up everything registered above
 }
