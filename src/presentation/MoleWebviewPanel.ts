@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { MOLE_ASSETS_MAP } from '../shared/moleAssets';
+import { A11yErrorDetail } from '../shared/models';
 
 export class MoleWebviewPanel {
   private readonly _panel: vscode.WebviewPanel;
@@ -138,13 +139,18 @@ export class MoleWebviewPanel {
     }
   }
 
-  public sendDocumentDiagnostics(fileName: string, errorLines: number[]): void {
+  public sendDocumentDiagnostics(
+    fileName: string,
+    errorLines: number[],
+    errorDetails: A11yErrorDetail[] = [],
+  ): void {
     if (this._isDisposed || !this._panel) return;
     this._panel.webview.postMessage({
       type: 'DIAGNOSTICS_UPDATE',
       payload: {
         fileName,
         errorLines,
+        errorDetails,
       },
     });
   }

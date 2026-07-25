@@ -1,8 +1,8 @@
 import { parentPort } from 'worker_threads';
 import { JSDOM, VirtualConsole } from 'jsdom';
-import { WorkerAnalysisResult } from './CodeWatcher';
+import { WorkerAnalysisResult, A11yErrorDetail } from '../shared/models';
 import { AXE_PROFILES, filterViolationsByFileType } from '../shared/axeConfig';
-import { FoodType, AXE_RULE_FOOD_MAP } from '../shared/food';
+import { FoodType, getFoodTypeForRule } from '../shared/food';
 
 // @ts-ignore
 import axeCode from './axe.min.js';
@@ -64,9 +64,14 @@ port.on(
         isVue,
       );
       const currentViolations = activeViolations.map((v: any) => v.id);
+      const totalErrorNodesCount = activeViolations.reduce(
+        (sum: number, v: any) => sum + (v.nodes?.length || 1),
+        0,
+      );
 
-      // LINE MARKERS EXTRACTION PIPELINE
+      // LINE MARKERS & DETAILED ERRORS EXTRACTION PIPELINE
       const errorLines: number[] = [];
+      const errorDetails: A11yErrorDetail[] = [];
 
       activeViolations.forEach((violation: any) => {
         if (violation.nodes && Array.isArray(violation.nodes)) {
@@ -80,14 +85,35 @@ port.on(
                   const location = dom!.nodeLocation(element);
                   if (location) {
                     // JSDOM uses 1-based indexing, VS Code expects 0-based index references.
-                    // Recalibrate lines indexing using structural offsets payload parameters.
                     const vscodeLineIndex = location.startLine - 1 + lineOffset;
-                    if (!errorLines.includes(vscodeLineIndex))
+
+                    if (!errorLines.includes(vscodeLineIndex)) {
                       errorLines.push(vscodeLineIndex);
+                    }
+
+                    const primaryHelp =
+                      violation.help || 'Accessibility issue detected';
+                    const failureReason = node.failureSummary
+                      ? node.failureSummary.replace(
+                          /^Fix any of the following:\s*/,
+                          '',
+                        )
+                      : '';
+
+                    const fullMessage = failureReason
+                      ? `${primaryHelp}. ${failureReason}`
+                      : primaryHelp;
+
+                    errorDetails.push({
+                      line: vscodeLineIndex,
+                      ruleId: violation.id,
+                      message: fullMessage,
+                      helpUrl: violation.helpUrl || '',
+                    });
                   }
                 }
               } catch (selectorError) {
-                // Defensive strategy fallback: if complex selectors break querySelector, fall back to root component tag line
+                // Defensive strategy fallback for complex selectors
                 if (isVue) {
                   const fallbackElement =
                     dom!.window.document.querySelector('component');
@@ -96,8 +122,18 @@ port.on(
                     if (location) {
                       const vscodeLineIndex =
                         location.startLine - 1 + lineOffset;
-                      if (!errorLines.includes(vscodeLineIndex))
+                      if (!errorLines.includes(vscodeLineIndex)) {
                         errorLines.push(vscodeLineIndex);
+                      }
+
+                      errorDetails.push({
+                        line: vscodeLineIndex,
+                        ruleId: violation.id,
+                        message:
+                          violation.help ||
+                          'Accessibility issue detected in component',
+                        helpUrl: violation.helpUrl || '',
+                      });
                     }
                   }
                 }
@@ -110,11 +146,12 @@ port.on(
       // DELTA CHECK MECHANISM: Evaluate if the developer successfully eliminated a bug
       let fixedFoodType: FoodType | undefined = undefined;
       if (currentViolations.length < previousViolations.length) {
-        const resolvedRule = previousViolations.find(
+        const resolvedRuleId = previousViolations.find(
           (id) => !currentViolations.includes(id),
         );
-        if (resolvedRule) {
-          fixedFoodType = AXE_RULE_FOOD_MAP[resolvedRule] || FoodType.SNACK;
+
+        if (resolvedRuleId) {
+          fixedFoodType = getFoodTypeForRule(resolvedRuleId);
         }
       }
 
@@ -123,11 +160,13 @@ port.on(
         isParsingError?: boolean;
         currentViolations: string[];
         errorLines?: number[];
+        errorDetails?: A11yErrorDetail[];
       } = {
         fileName,
-        errorCount: currentViolations.length,
+        errorCount: totalErrorNodesCount,
         fixedFoodType,
         errorLines,
+        errorDetails,
         currentViolations,
         isParsingError: false,
       };
@@ -136,19 +175,18 @@ port.on(
     } catch (error) {
       console.warn(`[Fault-Tolerant Guardian] Error in ${fileName}.`);
 
-      // FAULT-TOLERANT ESCAPE ROUTE:
-      // Instead of forcing errorCount: 1, mirror the historical cache length.
-      // This ensures errorCount === previousErrors inside GamificationEngine, keeping combo streaks intact.
       const errorResponse: WorkerAnalysisResult & {
         isParsingError?: boolean;
         errorLines?: number[];
+        errorDetails?: A11yErrorDetail[];
         currentViolations: string[];
       } = {
         fileName,
         errorCount: previousViolations.length,
         fixedFoodType: undefined,
         errorLines: [],
-        currentViolations: previousViolations, // Возвращаем старый кэш при ошибке
+        errorDetails: [],
+        currentViolations: previousViolations,
         isParsingError: true,
       };
 

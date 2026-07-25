@@ -1,16 +1,7 @@
 import * as vscode from 'vscode';
 import { Worker } from 'worker_threads';
 import { FoodType } from '../shared/food';
-
-/**
- * Defines the structural payload contract emitted from the background Accessibility worker thread
- */
-export interface WorkerAnalysisResult {
-  fileName: string;
-  errorCount: number;
-  fixedFoodType?: FoodType; // Populated if an accessibility correction rule was successfully applied
-  errorLines?: number[]; // Precise code rows coordinates containing violations
-}
+import { WorkerAnalysisResult, A11yErrorDetail } from '../shared/models';
 
 export class CodeWatcher implements vscode.Disposable {
   private disposables: vscode.Disposable[] = [];
@@ -18,13 +9,13 @@ export class CodeWatcher implements vscode.Disposable {
 
   constructor(
     private readonly context: vscode.ExtensionContext,
-    // Callback updated to emit decoupled analytical primitives straight to the pipeline orchestration layers
     private readonly onAnalysisComplete: (
       fileName: string,
       errorCount: number,
       fixedFoodType?: FoodType,
       errorLines?: number[],
       currentViolations?: string[],
+      errorDetails?: A11yErrorDetail[],
     ) => void,
     private readonly getCache: () => Record<string, string[]>,
   ) {
@@ -52,15 +43,20 @@ export class CodeWatcher implements vscode.Disposable {
     this.worker = new Worker(workerUri.fsPath);
 
     // Listen to typed event triggers transmitted from the sandboxed worker environment
-    this.worker.on('message', (result: WorkerAnalysisResult) => {
-      // Direct pass-through: extraction operations are completed entirely inside the background thread
-      this.onAnalysisComplete(
-        result.fileName,
-        result.errorCount,
-        result.fixedFoodType,
-        result.errorLines,
-      );
-    });
+    this.worker.on(
+      'message',
+      (result: WorkerAnalysisResult & { errorDetails?: A11yErrorDetail[] }) => {
+        // Direct pass-through: line numbers, violation IDs, and detailed Axe messages
+        this.onAnalysisComplete(
+          result.fileName,
+          result.errorCount,
+          result.fixedFoodType,
+          result.errorLines,
+          result.currentViolations,
+          result.errorDetails,
+        );
+      },
+    );
 
     this.worker.on('error', (err) => {
       console.error('Accessibility Worker critical crash anomaly caught:', err);

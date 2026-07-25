@@ -10,10 +10,17 @@ export interface GameState {
   fileName: string; // Active document name rendered inside the terminal view
 }
 
+export interface A11yErrorDetail {
+  line: number;
+  ruleId: string;
+  message: string;
+  helpUrl: string;
+}
 export interface WorkerAnalysisResult {
   fileName: string;
   errorCount: number;
   fixedFoodType?: FoodType;
   errorLines?: number[];
+  rrorDetails?: A11yErrorDetail[];
   currentViolations: string[];
 }

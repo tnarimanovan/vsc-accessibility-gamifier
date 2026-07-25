@@ -193,6 +193,57 @@
             margin-top: 0.75rem;
             padding-top: 0.75rem;
             border-top: 1px dashed rgba(255, 255, 255, 0.15);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .mole-diagnostics__card {
+            background: rgba(255, 255, 255, 0.03);
+            border-left: 3px solid var(--mb-error);
+            border-radius: 4px;
+            padding: 8px 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .mole-diagnostics__header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 700;
+        }
+
+        .mole-diagnostics__line {
+            color: var(--mb-error);
+        }
+
+        .mole-diagnostics__rule {
+            background: rgba(244, 67, 54, 0.15);
+            color: #ff8a80;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 0.68rem;
+        }
+
+        .mole-diagnostics__msg {
+            color: var(--mb-fg);
+            font-size: 0.72rem;
+            line-height: 1.4;
+            white-space: pre-line;
+        }
+
+        .mole-diagnostics__link {
+            color: var(--mb-accent);
+            text-decoration: none;
+            font-size: 0.68rem;
+            align-self: flex-end;
+            margin-top: 2px;
+        }
+
+        .mole-diagnostics__link:hover {
+            text-decoration: underline;
         }
 
         .mole-diagnostics__item {
@@ -368,7 +419,7 @@
                             logColor = 'var(--mb-error)';
                         }
 
-                        nodes.bugContainer.style.display = 'block';
+                        nodes.bugContainer.style.display = 'flex';
                     } else {
                         assetKey = 'bored';
                         altDesc = 'Your Mole companion rests peacefully in a clean, accessible burrow.';
@@ -430,22 +481,45 @@
                 currentCachedDiagnostics = payload;
                 if (!nodes.bugContainer || nodes.bugContainer.style.display === 'none') return;
 
+                const details = payload.errorDetails || [];
                 const lines = payload.errorLines || [];
-                if (lines.length === 0) {
-                    nodes.bugContainer.innerHTML = '';
+
+                if (details.length > 0) {
+                    let innerHTML = '';
+                    details.forEach((err) => {
+                        const humanRowNumber = err.line + 1;
+                        const linkHtml = err.helpUrl
+                            ? `<a class="mole-diagnostics__link" href="${err.helpUrl}" target="_blank">Docs ›</a>`
+                            : '';
+
+                        innerHTML += `
+                            <div class="mole-diagnostics__card">
+                                <div class="mole-diagnostics__header">
+                                    <span class="mole-diagnostics__line">🔴 Line ${humanRowNumber}</span>
+                                    <span class="mole-diagnostics__rule">${err.ruleId}</span>
+                                </div>
+                                <div class="mole-diagnostics__msg">${err.message}</div>
+                                ${linkHtml}
+                            </div>
+                        `;
+                    });
+                    nodes.bugContainer.innerHTML = innerHTML;
                     return;
                 }
 
-                let innerHTML = '';
-                lines.forEach(lineIndex => {
-                    const humanRowNumber = lineIndex + 1;
-                    innerHTML += `<span class="mole-diagnostics__item"> └─ 🔴 Line ${humanRowNumber}: Accessibility fix required</span>`;
-                });
-
-                nodes.bugContainer.innerHTML = innerHTML;
+                if (lines.length > 0) {
+                    let innerHTML = '';
+                    lines.forEach(lineIndex => {
+                        const humanRowNumber = lineIndex + 1;
+                        innerHTML += `<span class="mole-diagnostics__item"> └─ 🔴 Line ${humanRowNumber}: Accessibility fix required</span>`;
+                    });
+                    nodes.bugContainer.innerHTML = innerHTML;
+                } else {
+                    nodes.bugContainer.innerHTML = '';
+                }
             }
 
-            let messagePayload = null; 
+            let messagePayload = null;
 
             // Initialize System Event Bridge Router
             window.addEventListener('message', (event) => {

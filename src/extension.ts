@@ -3,7 +3,7 @@ import { GamificationEngine } from './core/GamificationEngine';
 import { MoleWebviewPanel } from './presentation/MoleWebviewPanel';
 import { MoleStatusBar } from './presentation/MoleStatusBar';
 import { CodeWatcher } from './infrastructure/CodeWatcher';
-import { GameState } from './shared/models';
+import { GameState, A11yErrorDetail } from './shared/models';
 import { GAME_BALANCE } from './shared/gameConstants';
 
 const STORAGE_KEY = 'vsc-accessibility-gamifier.state';
@@ -21,6 +21,9 @@ export function activate(context: vscode.ExtensionContext) {
   const logChannel = vscode.window.createOutputChannel("Mole's Burrow Log");
   logChannel.appendLine('[System] Orchestrator successfully initialized.');
 
+  const diagnosticsCollection =
+    vscode.languages.createDiagnosticCollection('a11yMole');
+
   let activePanel: MoleWebviewPanel | undefined = undefined;
   const statusBar = new MoleStatusBar();
 
@@ -34,14 +37,25 @@ export function activate(context: vscode.ExtensionContext) {
 
   let lastTypingTimestamp = Date.now();
   const TWENTY_MINUTES_MS = GAME_BALANCE.AFK_TIMEOUT_MS;
-  const errorsByFileCache: Record<string, number[]> = {};
 
-  function syncPanelDiagnostics(fileName: string, errorLines: number[]) {
+
+  const errorsByFileCache: Record<string, number[]> = {};
+  const errorDetailsByFileCache: Record<string, A11yErrorDetail[]> = {};
+
+  function syncPanelDiagnostics(
+    fileName: string,
+    errorLines: number[],
+    errorDetails: A11yErrorDetail[] = [],
+  ) {
     if (
       activePanel &&
       typeof (activePanel as any).sendDocumentDiagnostics === 'function'
     ) {
-      (activePanel as any).sendDocumentDiagnostics(fileName, errorLines);
+      (activePanel as any).sendDocumentDiagnostics(
+        fileName,
+        errorLines,
+        errorDetails,
+      );
     }
   }
 
@@ -127,6 +141,34 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
+  function updateNativeDiagnostics(
+    document: vscode.TextDocument,
+    details: A11yErrorDetail[],
+  ) {
+    if (!details || details.length === 0) {
+      diagnosticsCollection.delete(document.uri);
+      return;
+    }
+
+    const diagnostics: vscode.Diagnostic[] = details.map((detail) => {
+      const lineIndex = Math.min(detail.line, document.lineCount - 1);
+      const lineRange = document.lineAt(lineIndex).range;
+
+      const diagnostic = new vscode.Diagnostic(
+        lineRange,
+        `[Accessibility Mole] ${detail.message}`,
+        vscode.DiagnosticSeverity.Error,
+      );
+
+      diagnostic.code = detail.ruleId;
+      diagnostic.source = 'Axe-Core';
+
+      return diagnostic;
+    });
+
+    diagnosticsCollection.set(document.uri, diagnostics);
+  }
+
   function triggerCodeHighlighting() {
     const activeEditor = vscode.window.activeTextEditor;
     if (!activeEditor) return;
@@ -160,7 +202,14 @@ export function activate(context: vscode.ExtensionContext) {
   // 4. INFRASTRUCTURE PIPELINE: Connect Worker to Engine
   const watcher = new CodeWatcher(
     context,
-    (fileName, errorCount, fixedFoodType, errorLines, currentViolations) => {
+    (
+      fileName,
+      errorCount,
+      fixedFoodType,
+      errorLines,
+      currentViolations,
+      errorDetails,
+    ) => {
       if (!isEditorFocused) return;
 
       const activeEditor = vscode.window.activeTextEditor;
@@ -180,13 +229,26 @@ export function activate(context: vscode.ExtensionContext) {
         context.workspaceState.update('violationCache', cache);
 
         engine.processCodeAnalysis(fileName, errorCount, fixedFoodType);
+
         const cleanLines = errorLines || [];
+        const cleanDetails = errorDetails || [];
+
         errorsByFileCache[fileName] = cleanLines;
+        errorDetailsByFileCache[fileName] = cleanDetails;
 
         triggerCodeHighlighting();
 
+        if (activeEditor) {
+          const currentFileName = activeEditor.document.fileName
+            .split(/[\\/]/)
+            .pop();
+          if (currentFileName === fileName) {
+            updateNativeDiagnostics(activeEditor.document, cleanDetails);
+          }
+        }
+
         if (activePanel && activePanel.isVisible()) {
-          syncPanelDiagnostics(fileName, cleanLines);
+          syncPanelDiagnostics(fileName, cleanLines, cleanDetails);
         }
       } catch (error) {
         logChannel.appendLine(`[Critical] Analysis runtime error: ${error}`);
@@ -281,6 +343,9 @@ export function activate(context: vscode.ExtensionContext) {
       const currentFileName =
         editor.document.fileName.split(/[\\/]/).pop() || 'unknown';
       const cachedFileLines = errorsByFileCache[currentFileName] || [];
+      const cachedFileDetails = errorDetailsByFileCache[currentFileName] || [];
+
+      updateNativeDiagnostics(editor.document, cachedFileDetails);
 
       engine.processCodeAnalysis(
         currentFileName,
@@ -291,7 +356,11 @@ export function activate(context: vscode.ExtensionContext) {
 
       if (activePanel) {
         activePanel.updateGameState(engine.state);
-        syncPanelDiagnostics(currentFileName, cachedFileLines);
+        syncPanelDiagnostics(
+          currentFileName,
+          cachedFileLines,
+          cachedFileDetails,
+        );
       }
     },
   );
@@ -325,6 +394,7 @@ export function activate(context: vscode.ExtensionContext) {
       syncPanelDiagnostics(
         currentFileName,
         errorsByFileCache[currentFileName] || [],
+        errorDetailsByFileCache[currentFileName] || [],
       );
     }
   };
@@ -368,17 +438,22 @@ export function activate(context: vscode.ExtensionContext) {
       if (errorsByFileCache.hasOwnProperty(fileName)) {
         delete errorsByFileCache[fileName];
       }
+      if (errorDetailsByFileCache.hasOwnProperty(fileName)) {
+        delete errorDetailsByFileCache[fileName];
+      }
+      diagnosticsCollection.delete(document.uri);
     }
   });
 
   // 6. RESOURCE CLEANUP REGISTRATION: All modules linked to root context tree
   context.subscriptions.push(
     logChannel,
+    diagnosticsCollection,
     openBurrowCommand,
     watcher,
     statusBar,
     windowFocusListener,
-    hungerTimerDisposable, // Fully safe garbage collection tracking registration
+    hungerTimerDisposable,
     activeEditorListener,
     configListener,
     typingListener,
