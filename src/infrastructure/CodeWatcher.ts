@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Worker } from 'worker_threads';
+import { fork, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { FoodType } from '../shared/food';
@@ -7,7 +7,7 @@ import { WorkerAnalysisResult, A11yErrorDetail } from '../shared/models';
 
 export class CodeWatcher implements vscode.Disposable {
   private disposables: vscode.Disposable[] = [];
-  private worker: Worker | null = null;
+  private workerProcess: ChildProcess | null = null;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -33,7 +33,7 @@ export class CodeWatcher implements vscode.Disposable {
   }
 
   /**
-   * Initializes background thread execution engine using Node.js Worker Threads
+   * Initializes background execution engine using child_process.fork
    */
   private initWorker(): void {
     try {
@@ -50,10 +50,13 @@ export class CodeWatcher implements vscode.Disposable {
         return;
       }
 
-      this.worker = new Worker(workerPath);
+      this.workerProcess = fork(workerPath, [], {
+        env: process.env,
+        stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
+      });
 
-      // Listen to typed event triggers transmitted from the sandboxed worker environment
-      this.worker.on(
+      // Listen to typed event triggers transmitted from the independent worker process
+      this.workerProcess.on(
         'message',
         (
           result: WorkerAnalysisResult & { errorDetails?: A11yErrorDetail[] },
@@ -69,12 +72,12 @@ export class CodeWatcher implements vscode.Disposable {
         },
       );
 
-      this.worker.on('error', (err) => {
+      this.workerProcess.on('error', (err) => {
         console.error('Accessibility Worker execution error:', err);
         this.relaunchWorker();
       });
 
-      this.worker.on('exit', (code) => {
+      this.workerProcess.on('exit', (code) => {
         if (code !== 0) {
           console.warn(
             `Accessibility Worker stopped unexpectedly with code ${code}`,
@@ -82,17 +85,20 @@ export class CodeWatcher implements vscode.Disposable {
         }
       });
     } catch (err) {
-      console.error('Accessibility Failed to initialize worker thread:', err);
+      console.error(
+        'Accessibility Failed to initialize child process worker:',
+        err,
+      );
     }
   }
 
   /**
-   * Defensive self-healing pattern. Recovers operational tracking if thread collapses.
+   * Defensive self-healing pattern. Recovers operational tracking if process collapses.
    */
   private relaunchWorker(): void {
-    if (this.worker) {
-      this.worker.terminate();
-      this.worker = null;
+    if (this.workerProcess) {
+      this.workerProcess.kill();
+      this.workerProcess = null;
     }
     this.initWorker();
   }
@@ -137,12 +143,12 @@ export class CodeWatcher implements vscode.Disposable {
 
     const cache = this.getCache();
 
-    if (!this.worker) {
+    if (!this.workerProcess) {
       this.initWorker();
     }
 
-    if (this.worker) {
-      this.worker.postMessage({
+    if (this.workerProcess) {
+      this.workerProcess.send({
         sourceCode: fileText,
         fileName,
         previousViolations: cache[fileName] || [],
@@ -157,9 +163,9 @@ export class CodeWatcher implements vscode.Disposable {
    */
   public dispose(): void {
     this.disposables.forEach((d) => d.dispose());
-    if (this.worker) {
-      this.worker.terminate();
-      this.worker = null;
+    if (this.workerProcess) {
+      this.workerProcess.kill();
+      this.workerProcess = null;
     }
   }
 }

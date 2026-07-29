@@ -1,4 +1,3 @@
-import { parentPort } from 'worker_threads';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { WorkerAnalysisResult, A11yErrorDetail } from '../shared/models';
 import { AXE_PROFILES, filterViolationsByFileType } from '../shared/axeConfig';
@@ -7,12 +6,7 @@ import { FoodType, getFoodTypeForRule } from '../shared/food';
 // @ts-ignore
 import axeCode from './axe.min.js';
 
-const port = parentPort;
-if (!port) {
-  throw new Error('AccessibilityWorker must be initiated as a Worker Thread');
-}
-
-port.on(
+process.on(
   'message',
   async (message: {
     sourceCode: string;
@@ -49,7 +43,7 @@ port.on(
 
       dom.window.eval(axeCode);
 
-      // 1. DYNAMIC PROFILE INJECTION: Select configuration matrix profile cleanly
+      // 1. DYNAMIC PROFILE INCETION: Select configuration matrix profile cleanly
       const currentConfigProfile = isVue ? AXE_PROFILES.vue : AXE_PROFILES.html;
 
       // Execute Axe accessibility audit inside the virtual window environment
@@ -155,7 +149,6 @@ port.on(
         }
       }
 
-      // Sync current snapshot back into the cache register map
       const response: WorkerAnalysisResult & {
         isParsingError?: boolean;
         currentViolations: string[];
@@ -171,7 +164,9 @@ port.on(
         isParsingError: false,
       };
 
-      port.postMessage(response);
+      if (process.send) {
+        process.send(response);
+      }
     } catch (error) {
       console.warn(`[Fault-Tolerant Guardian] Error in ${fileName}.`);
 
@@ -190,7 +185,9 @@ port.on(
         isParsingError: true,
       };
 
-      port.postMessage(errorResponse);
+      if (process.send) {
+        process.send(errorResponse);
+      }
     } finally {
       if (dom) {
         dom.window.close();
