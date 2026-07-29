@@ -22,6 +22,11 @@
 
 ## 📥 Installation (VSIX)
 
+
+https://github.com/user-attachments/assets/64c8b84f-1d02-467c-900f-1376eea2d4c8
+
+
+
 To install and use the pre-built extension in your VS Code:
 
 1. Download or get the `vsc-accessibility-gamifier-0.0.1.vsix` file.
@@ -35,7 +40,13 @@ To install and use the pre-built extension in your VS Code:
 
 ## 🚀 How to Use
 
-1. After installation, open any project containing HTML, Vue, or JSX files.
+
+
+https://github.com/user-attachments/assets/75e28a50-47d6-40a6-b67e-540541a5face
+
+
+
+1. After installation, open any project containing HTML, Vue files.
 2. Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`).
 3. Type and run: **`Mole's Burrow: Open Burrow`**.
 4. Start fixing accessibility errors in your active file and save changes — the mole will automatically track your progress, gain XP, and evolve!
