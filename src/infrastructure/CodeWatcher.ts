@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import { Worker } from 'worker_threads';
+import * as path from 'path';
+import * as fs from 'fs';
 import { FoodType } from '../shared/food';
 import { WorkerAnalysisResult, A11yErrorDetail } from '../shared/models';
 
@@ -34,34 +36,54 @@ export class CodeWatcher implements vscode.Disposable {
    * Initializes background thread execution engine using Node.js Worker Threads
    */
   private initWorker(): void {
-    const workerUri = vscode.Uri.joinPath(
-      this.context.extensionUri,
-      'dist',
-      'AccessibilityWorker.js',
-    );
+    try {
+      const workerPath = path.join(
+        this.context.extensionPath,
+        'dist',
+        'AccessibilityWorker.js',
+      );
 
-    this.worker = new Worker(workerUri.fsPath);
-
-    // Listen to typed event triggers transmitted from the sandboxed worker environment
-    this.worker.on(
-      'message',
-      (result: WorkerAnalysisResult & { errorDetails?: A11yErrorDetail[] }) => {
-        // Direct pass-through: line numbers, violation IDs, and detailed Axe messages
-        this.onAnalysisComplete(
-          result.fileName,
-          result.errorCount,
-          result.fixedFoodType,
-          result.errorLines,
-          result.currentViolations,
-          result.errorDetails,
+      if (!fs.existsSync(workerPath)) {
+        console.error(
+          `[A11y Mole] Worker file not found at path: ${workerPath}`,
         );
-      },
-    );
+        return;
+      }
 
-    this.worker.on('error', (err) => {
-      console.error('Accessibility Worker critical crash anomaly caught:', err);
-      this.relaunchWorker();
-    });
+      this.worker = new Worker(workerPath);
+
+      // Listen to typed event triggers transmitted from the sandboxed worker environment
+      this.worker.on(
+        'message',
+        (
+          result: WorkerAnalysisResult & { errorDetails?: A11yErrorDetail[] },
+        ) => {
+          this.onAnalysisComplete(
+            result.fileName,
+            result.errorCount,
+            result.fixedFoodType,
+            result.errorLines,
+            result.currentViolations,
+            result.errorDetails,
+          );
+        },
+      );
+
+      this.worker.on('error', (err) => {
+        console.error('Accessibility Worker execution error:', err);
+        this.relaunchWorker();
+      });
+
+      this.worker.on('exit', (code) => {
+        if (code !== 0) {
+          console.warn(
+            `Accessibility Worker stopped unexpectedly with code ${code}`,
+          );
+        }
+      });
+    } catch (err) {
+      console.error('Accessibility Failed to initialize worker thread:', err);
+    }
   }
 
   /**
@@ -70,12 +92,20 @@ export class CodeWatcher implements vscode.Disposable {
   private relaunchWorker(): void {
     if (this.worker) {
       this.worker.terminate();
+      this.worker = null;
     }
     this.initWorker();
   }
 
   /**
-   * Intercepts workspace save callbacks, parses out target text payloads, and sends tasks to the worker thread
+   * Public entry point: trigger manual document analysis (e.g. on editor focus)
+   */
+  public async analyzeDocument(document: vscode.TextDocument): Promise<void> {
+    await this.handleDocumentSave(document);
+  }
+
+  /**
+   * Intercepts text payload, extracts template content for Vue SFCs, and dispatches to worker
    */
   private async handleDocumentSave(
     document: vscode.TextDocument,
@@ -86,35 +116,32 @@ export class CodeWatcher implements vscode.Disposable {
     }
 
     let fileText = document.getText();
-    // Cross-platform safe filename separation mechanism
     const fileName = document.fileName.split(/[\\/]/).pop() || 'unknown';
 
-    // Line offset identifier initialization (defaults to zero for standard flat HTML)
     let lineOffset = 0;
-    // Identify file type natively via VS Code workspace indicators
     const isVue = document.languageId === 'vue';
 
-    // If it's a Vue SFC component, cleanly isolate the raw inside contents of the <template> node
     if (isVue) {
       const templateRegex = /<template[^>]*>(.*?)<\/template>/s;
       const match = fileText.match(templateRegex);
 
       if (match && match[1]) {
-        // Find the absolute character index where the template content block begins
         const templateStartIndex = fileText.indexOf(match[1]);
-
-        // Count how many newline symbols (\n) exist prior to the template contents.
         lineOffset =
           fileText.substring(0, templateStartIndex).split('\n').length - 1;
-
         fileText = match[1];
       } else {
         return;
       }
     }
+
     const cache = this.getCache();
+
+    if (!this.worker) {
+      this.initWorker();
+    }
+
     if (this.worker) {
-      // Offload processing intensive HTML parsing operations with strict architectural metrics
       this.worker.postMessage({
         sourceCode: fileText,
         fileName,
@@ -132,6 +159,7 @@ export class CodeWatcher implements vscode.Disposable {
     this.disposables.forEach((d) => d.dispose());
     if (this.worker) {
       this.worker.terminate();
+      this.worker = null;
     }
   }
 }
