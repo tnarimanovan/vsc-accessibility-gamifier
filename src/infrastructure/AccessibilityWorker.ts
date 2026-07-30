@@ -2,6 +2,8 @@ import { JSDOM, VirtualConsole } from 'jsdom';
 import { WorkerAnalysisResult, A11yErrorDetail } from '../shared/models';
 import { AXE_PROFILES, filterViolationsByFileType } from '../shared/axeConfig';
 import { FoodType, getFoodTypeForRule } from '../shared/food';
+import { analyzeVueAst } from '../shared/vueAstAnalyzer';
+import { sanitizeVueTemplate } from '../shared/sanitizeVueTemplate';
 
 // @ts-ignore
 import axeCode from './axe.min.js';
@@ -34,7 +36,20 @@ process.on(
         console.error(error);
       });
 
-      dom = new JSDOM(sourceCode, {
+      let htmlToParse = sourceCode;
+      let astVueErrors: A11yErrorDetail[] = [];
+
+      // ---------------------------------------------------------
+      // pipeline VUE: AST Analyzer -> Sanitize -> wrap
+      // ---------------------------------------------------------
+      if (isVue) {
+
+        astVueErrors = analyzeVueAst(sourceCode, lineOffset);
+        const sanitized = sanitizeVueTemplate(sourceCode);
+        htmlToParse = `<!DOCTYPE html><html lang="en"><head><title>Audit</title></head><body><main>${sanitized}</main></body></html>`;
+      }
+
+      dom = new JSDOM(htmlToParse, {
         runScripts: 'dangerously',
         pretendToBeVisual: false,
         virtualConsole,
@@ -43,29 +58,19 @@ process.on(
 
       dom.window.eval(axeCode);
 
-      // 1. DYNAMIC PROFILE INCETION: Select configuration matrix profile cleanly
       const currentConfigProfile = isVue ? AXE_PROFILES.vue : AXE_PROFILES.html;
 
-      // Execute Axe accessibility audit inside the virtual window environment
       const results = await dom.window.axe.run(dom.window.document, {
         ...currentConfigProfile,
         preload: false,
       });
 
-      // 2. ADAPTIVE FILTERING CHAIN: Leverage configuration predicates to isolate errors
       const activeViolations = filterViolationsByFileType(
         results.violations,
         isVue,
       );
-      const currentViolations = activeViolations.map((v: any) => v.id);
-      const totalErrorNodesCount = activeViolations.reduce(
-        (sum: number, v: any) => sum + (v.nodes?.length || 1),
-        0,
-      );
 
-      // LINE MARKERS & DETAILED ERRORS EXTRACTION PIPELINE
-      const errorLines: number[] = [];
-      const errorDetails: A11yErrorDetail[] = [];
+      const axeErrorDetails: A11yErrorDetail[] = [];
 
       activeViolations.forEach((violation: any) => {
         if (violation.nodes && Array.isArray(violation.nodes)) {
@@ -78,12 +83,7 @@ process.on(
                 if (element) {
                   const location = dom!.nodeLocation(element);
                   if (location) {
-                    // JSDOM uses 1-based indexing, VS Code expects 0-based index references.
                     const vscodeLineIndex = location.startLine - 1 + lineOffset;
-
-                    if (!errorLines.includes(vscodeLineIndex)) {
-                      errorLines.push(vscodeLineIndex);
-                    }
 
                     const primaryHelp =
                       violation.help || 'Accessibility issue detected';
@@ -98,7 +98,7 @@ process.on(
                       ? `${primaryHelp}. ${failureReason}`
                       : primaryHelp;
 
-                    errorDetails.push({
+                    axeErrorDetails.push({
                       line: vscodeLineIndex,
                       ruleId: violation.id,
                       message: fullMessage,
@@ -107,20 +107,16 @@ process.on(
                   }
                 }
               } catch (selectorError) {
-                // Defensive strategy fallback for complex selectors
                 if (isVue) {
                   const fallbackElement =
-                    dom!.window.document.querySelector('component');
+                    dom!.window.document.querySelector('main');
                   if (fallbackElement) {
                     const location = dom!.nodeLocation(fallbackElement);
                     if (location) {
                       const vscodeLineIndex =
                         location.startLine - 1 + lineOffset;
-                      if (!errorLines.includes(vscodeLineIndex)) {
-                        errorLines.push(vscodeLineIndex);
-                      }
 
-                      errorDetails.push({
+                      axeErrorDetails.push({
                         line: vscodeLineIndex,
                         ruleId: violation.id,
                         message:
@@ -137,7 +133,24 @@ process.on(
         }
       });
 
-      // DELTA CHECK MECHANISM: Evaluate if the developer successfully eliminated a bug
+      // ---------------------------------------------------------
+      // merge (AST + AXE)
+      // ---------------------------------------------------------
+      const combinedDetails = [...axeErrorDetails, ...astVueErrors];
+
+      const uniqueDetails = combinedDetails.filter(
+        (err, index, self) =>
+          index ===
+          self.findIndex((t) => t.line === err.line && t.ruleId === err.ruleId),
+      );
+
+      const allErrorLines = Array.from(
+        new Set(uniqueDetails.map((d) => d.line)),
+      );
+      const currentViolations = Array.from(
+        new Set(uniqueDetails.map((d) => d.ruleId)),
+      );
+
       let fixedFoodType: FoodType | undefined = undefined;
       if (currentViolations.length < previousViolations.length) {
         const resolvedRuleId = previousViolations.find(
@@ -156,10 +169,10 @@ process.on(
         errorDetails?: A11yErrorDetail[];
       } = {
         fileName,
-        errorCount: totalErrorNodesCount,
+        errorCount: uniqueDetails.length,
         fixedFoodType,
-        errorLines,
-        errorDetails,
+        errorLines: allErrorLines,
+        errorDetails: uniqueDetails,
         currentViolations,
         isParsingError: false,
       };

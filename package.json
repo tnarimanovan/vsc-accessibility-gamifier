@@ -81,6 +81,7 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@vue/compiler-core": "^3.5.40",
     "jsdom": "^29.1.1"
   }
 }

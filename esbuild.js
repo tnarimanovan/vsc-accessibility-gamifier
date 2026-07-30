@@ -38,7 +38,7 @@ async function main() {
     sourcesContent: false,
     platform: 'node',
     outdir: 'dist',
-    external: ['vscode', 'jsdom'],
+    external: ['vscode', 'jsdom', '@vue/compiler-core'],
     logLevel: 'silent',
     loader: {
       '.js': 'text',
