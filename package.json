@@ -37,6 +37,11 @@
         "command": "vsc-accessibility-gamifier.openBurrow",
         "title": "Mole's Burrow: Open Burrow",
         "category": "Accessibility Gamifier"
+      },
+      {
+        "command": "vsc-accessibility-gamifier.exportReport",
+        "title": "A11y Mole: Export Study Report",
+        "category": "Accessibility Gamifier"
       }
     ],
     "configuration": {

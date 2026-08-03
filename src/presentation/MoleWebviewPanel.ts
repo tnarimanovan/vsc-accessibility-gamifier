@@ -8,11 +8,13 @@ export class MoleWebviewPanel {
   private _disposables: vscode.Disposable[] = [];
   private _isDisposed = false;
   private _onReadyCallback?: () => void;
+  private _onMessageCallback?: (message: any) => void;
 
   public static create(
     extensionUri: vscode.Uri,
     onDispose: () => void,
     onReady?: () => void,
+    onMessage?: (message: any) => void,
   ): MoleWebviewPanel {
     const column = vscode.window.activeTextEditor
       ? vscode.window.activeTextEditor.viewColumn
@@ -31,6 +33,7 @@ export class MoleWebviewPanel {
 
     const instance = new MoleWebviewPanel(panel, extensionUri, onDispose);
     instance._onReadyCallback = onReady;
+    instance._onMessageCallback = onMessage;
     return instance;
   }
 
@@ -53,12 +56,18 @@ export class MoleWebviewPanel {
 
     // Listen to IPC message events coming up from the UI frontend layer
     this._panel.webview.onDidReceiveMessage(
-      async (message) => {
+      async (message: any) => {
         if (this._isDisposed) return;
 
-        switch (message.type) {
+        if (this._onMessageCallback) {
+          this._onMessageCallback(message);
+        }
+
+        const messageType = message.type || message.command;
+
+        switch (messageType) {
           case 'TOGGLE_HIGHLIGHTING': {
-            const isEnabled = message.payload.enabled;
+            const isEnabled = message.payload?.enabled;
             await vscode.workspace
               .getConfiguration('accessibilityMole')
               .update('enableCodeHighlighting', isEnabled, true);
@@ -174,9 +183,11 @@ export class MoleWebviewPanel {
     extensionUri: vscode.Uri,
     onDispose: () => void,
     onReady?: () => void,
+    onMessage?: (message: any) => void,
   ): MoleWebviewPanel {
     const instance = new MoleWebviewPanel(panel, extensionUri, onDispose);
     instance._onReadyCallback = onReady;
+    instance._onMessageCallback = onMessage;
     return instance;
   }
 

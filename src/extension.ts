@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { GamificationEngine } from './core/GamificationEngine';
 import { MoleWebviewPanel } from './presentation/MoleWebviewPanel';
 import { MoleStatusBar } from './presentation/MoleStatusBar';
 import { CodeWatcher } from './infrastructure/CodeWatcher';
 import { GameState, A11yErrorDetail } from './shared/models';
 import { GAME_BALANCE } from './shared/gameConstants';
+import { exportStudyReport } from './shared/exportReport';
 
 const STORAGE_KEY = 'vsc-accessibility-gamifier.state';
 
@@ -36,8 +38,15 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   let lastTypingTimestamp = Date.now();
+  const sessionStartTime = Date.now();
   const TWENTY_MINUTES_MS = GAME_BALANCE.AFK_TIMEOUT_MS;
 
+  let isInitialMetricsCaptured = false;
+  let initialViolationsCount = 0;
+  let initialHealthScore = 0;
+  const fixedRulesSet = new Set<string>();
+  let lastAnalyzedFileName = 'none';
+  let lastAnalyzedErrorDetails: A11yErrorDetail[] = [];
 
   const errorsByFileCache: Record<string, number[]> = {};
   const errorDetailsByFileCache: Record<string, A11yErrorDetail[]> = {};
@@ -141,6 +150,38 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
+  async function handleExportReport() {
+    const activeEditor = vscode.window.activeTextEditor;
+    const currentFileName = activeEditor
+      ? activeEditor.document.fileName.split(/[\\/]/).pop() || ''
+      : lastAnalyzedFileName;
+
+    const currentViolations =
+      errorDetailsByFileCache[currentFileName] ??
+      lastAnalyzedErrorDetails ??
+      [];
+    const remainingViolationsCount = Array.isArray(currentViolations)
+      ? currentViolations.length
+      : 0;
+
+    const finalHealthScore = Math.max(0, 100 - remainingViolationsCount * 15);
+
+    const unlockedBadges: string[] =
+      (engine.state as any).unlockedBadges ||
+      Array.from(fixedRulesSet).map((rule) => `${rule} Defender`);
+
+    await exportStudyReport({
+      sessionStartTime,
+      initialHealthScore,
+      finalHealthScore,
+      totalXpEarned: engine.state.xp || 0,
+      unlockedBadges,
+      initialViolationsCount,
+      remainingViolationsCount,
+      fixedRulesList: Array.from(fixedRulesSet),
+    });
+  }
+
   function updateNativeDiagnostics(
     document: vscode.TextDocument,
     details: A11yErrorDetail[],
@@ -235,6 +276,23 @@ export function activate(context: vscode.ExtensionContext) {
 
         errorsByFileCache[fileName] = cleanLines;
         errorDetailsByFileCache[fileName] = cleanDetails;
+
+        lastAnalyzedFileName = fileName;
+        lastAnalyzedErrorDetails = cleanDetails;
+
+        if (
+          !isInitialMetricsCaptured &&
+          (errorCount > 0 ||
+            (currentViolations && currentViolations.length > 0))
+        ) {
+          initialViolationsCount = errorCount;
+          initialHealthScore = Math.max(0, 100 - errorCount * 15);
+          isInitialMetricsCaptured = true;
+        }
+
+        if (fixedFoodType) {
+          fixedRulesSet.add(fixedFoodType);
+        }
 
         triggerCodeHighlighting();
 
@@ -405,12 +463,29 @@ export function activate(context: vscode.ExtensionContext) {
       if (activePanel) {
         activePanel.reveal();
       } else {
-        activePanel = MoleWebviewPanel.create(context.extensionUri, () => {
-          activePanel = undefined;
-        });
+        activePanel = MoleWebviewPanel.create(
+          context.extensionUri,
+          () => {
+            activePanel = undefined;
+          },
+          undefined,
+          (message: any) => {
+            if (
+              message.command === 'exportReport' ||
+              message.type === 'EXPORT_REPORT'
+            ) {
+              handleExportReport();
+            }
+          },
+        );
         forceSyncData();
       }
     },
+  );
+
+  const exportReportCommand = vscode.commands.registerCommand(
+    'vsc-accessibility-gamifier.exportReport',
+    handleExportReport,
   );
 
   if (typeof vscode.window.registerWebviewPanelSerializer === 'function') {
@@ -424,6 +499,15 @@ export function activate(context: vscode.ExtensionContext) {
           context.extensionUri,
           () => {
             activePanel = undefined;
+          },
+          undefined,
+          (message: any) => {
+            if (
+              message.command === 'exportReport' ||
+              message.type === 'EXPORT_REPORT'
+            ) {
+              handleExportReport();
+            }
           },
         );
         forceSyncData();
@@ -450,6 +534,7 @@ export function activate(context: vscode.ExtensionContext) {
     logChannel,
     diagnosticsCollection,
     openBurrowCommand,
+    exportReportCommand,
     watcher,
     statusBar,
     windowFocusListener,

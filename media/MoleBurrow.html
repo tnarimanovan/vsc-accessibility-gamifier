@@ -253,6 +253,40 @@
             font-family: var(--vscode-editor-font-family, monospace);
             margin-bottom: 0.2rem;
         }
+
+        .export-section {
+            margin-top: 24px;
+            padding: 16px;
+            background-color: var(--vscode-sideBar-background);
+            border-top: 1px solid var(--vscode-widget-border);
+            text-align: center;
+        }
+
+        .btn-export {
+            width: 100%;
+            padding: 10px 14px;
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            border-radius: 4px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-export:hover {
+            background-color: var(--vscode-button-hoverBackground);
+        }
+
+        .export-hint {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            margin-top: 8px;
+            line-height: 1.3;
+            }
     </style>
 </head>
 
@@ -301,6 +335,14 @@
             <span id="terminal-log" class="mole-terminal__line">> Waiting for diagnostics pipeline...</span>
             <div id="live-bug-list" class="mole-diagnostics" style="display: none;"></div>
         </article>
+        <div class="export-section">
+            <button id="export-report-btn" class="btn-export">
+                📥 Export & Save Study Report (.json)
+            </button>
+            <p class="export-hint">
+                Click to download your session results and attach the file to the post-study questionnaire.
+            </p>
+        </div>
     </main>
 
     <script>
@@ -542,6 +584,17 @@
                     vscode.postMessage({ type: 'UI_READY' });
                 }
             });
+
+            const exportBtn = document.getElementById('export-report-btn');
+            if (exportBtn) {
+                exportBtn.addEventListener('click', () => {
+                    if (vscode) {
+                        vscode.postMessage({ command: 'exportReport' });
+                    } else {
+                        console.warn('VS Code API not detected. Export report triggered locally.');
+                    }
+                });
+            }
         })();
     </script>
 </body>
