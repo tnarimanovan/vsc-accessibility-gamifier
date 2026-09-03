@@ -10,6 +10,12 @@ export class MoleWebviewPanel {
   private _onReadyCallback?: () => void;
   private _onMessageCallback?: (message: any) => void;
 
+  private _lastDiagnostics?: {
+    fileName: string;
+    errorLines: number[];
+    errorDetails: A11yErrorDetail[];
+  };
+
   public static create(
     extensionUri: vscode.Uri,
     onDispose: () => void,
@@ -74,9 +80,17 @@ export class MoleWebviewPanel {
             break;
           }
           case 'UI_READY': {
+            if (this._lastDiagnostics) {
+              this._panel.webview.postMessage({
+                type: 'DIAGNOSTICS_UPDATE',
+                payload: this._lastDiagnostics,
+              });
+            }
+
             if (this._onReadyCallback) {
               this._onReadyCallback();
             }
+
             break;
           }
         }
@@ -154,13 +168,16 @@ export class MoleWebviewPanel {
     errorDetails: A11yErrorDetail[] = [],
   ): void {
     if (this._isDisposed || !this._panel) return;
+
+    this._lastDiagnostics = {
+      fileName,
+      errorLines,
+      errorDetails,
+    };
+
     this._panel.webview.postMessage({
       type: 'DIAGNOSTICS_UPDATE',
-      payload: {
-        fileName,
-        errorLines,
-        errorDetails,
-      },
+      payload: this._lastDiagnostics,
     });
   }
 

@@ -11,6 +11,12 @@ export class GamificationEngine {
   ) => void;
 
   private _fileErrorMinima: Record<string, number> = {};
+  private _filePreviousErrors: Record<string, number> = {};
+  private _sessionXpEarned = 0;
+
+  public get sessionXpEarned(): number {
+    return this._sessionXpEarned;
+  }
 
   constructor(
     initialState: GameState | undefined,
@@ -34,6 +40,20 @@ export class GamificationEngine {
     return { ...this._state };
   }
 
+  public syncProgress(state: GameState): void {
+    this._state.level = state.level;
+    this._state.stage = state.stage;
+    this._state.xp = state.xp;
+    this._state.neededXp = state.neededXp;
+  }
+
+  public syncActiveFile(fileName: string, errorCount: number): void {
+    this._state.fileName = fileName;
+    this._state.errorCount = errorCount;
+
+    this._onStateChange(this.state, 'FILE_CONTEXT_CHANGED');
+  }
+
   public handleHungerTicker(): void {
     if (this._state.satiety > 0) {
       this._state.satiety = Math.max(0, this._state.satiety - 1);
@@ -49,22 +69,27 @@ export class GamificationEngine {
   public processCodeAnalysis(
     fileName: string,
     currentErrors: number,
-    fixedFoodType?: FoodType,
+    fixedFoodTypes: FoodType[] = [],
   ): void {
     this._state.fileName = fileName;
-    const previousErrors = this._state.errorCount;
+    // const previousErrors = this._state.errorCount;
     this._state.errorCount = currentErrors;
 
     if (this._fileErrorMinima[fileName] === undefined) {
       this._fileErrorMinima[fileName] = currentErrors;
-      return
+      this._filePreviousErrors[fileName] = currentErrors;
+      this._onStateChange(this.state, 'INITIAL_ANALYSIS');
+      return;
     }
 
+    const previousErrors = this._filePreviousErrors[fileName];
+    this._filePreviousErrors[fileName] = currentErrors;
+
     // SCENARIO 1: Errors were eliminated completely or partially fixed (Mole Feeds)
-    if (currentErrors < previousErrors && fixedFoodType) {
+    if (currentErrors < previousErrors && fixedFoodTypes.length > 0) {
       if (currentErrors < this._fileErrorMinima[fileName]) {
         this._fileErrorMinima[fileName] = currentErrors;
-        this.feedMole(fixedFoodType);
+        this.feedMoleBatch(fixedFoodTypes);
       } else {
         this._onStateChange(this.state, 'MOLE_RESTING');
       }
@@ -114,6 +139,42 @@ export class GamificationEngine {
     this._onStateChange(this.state, eventType);
   }
 
+  private feedMoleBatch(foods: FoodType[]): void {
+    const totalBaseXp = foods.reduce(
+      (sum, food) => sum + FOOD_REWARDS[food].xp,
+      0,
+    );
+
+    const totalSatiety = foods.reduce(
+      (sum, food) => sum + FOOD_REWARDS[food].satiety,
+      0,
+    );
+
+    const calculatedXpGain = Math.round(totalBaseXp * this._state.combo);
+    this._sessionXpEarned += calculatedXpGain;
+    this._state.xp += calculatedXpGain;
+
+    this._state.satiety = Math.min(
+      GAME_BALANCE.MAX_SATIETY,
+      this._state.satiety + totalSatiety,
+    );
+
+    // One successful save = one combo step
+    this.advanceComboCounter();
+
+    let eventType = 'MOLE_FED';
+
+    if (this._state.xp >= this._state.neededXp) {
+      while (this._state.xp >= this._state.neededXp) {
+        this.executeLevelUp();
+      }
+
+      eventType = 'LEVEL_UP';
+    }
+
+    this._onStateChange(this.state, eventType);
+  }
+
   private advanceComboCounter(): void {
     const multipliers = GAME_BALANCE.COMBO_MULTIPLIERS;
     const currentIndex = multipliers.indexOf(this._state.combo);
@@ -138,6 +199,10 @@ export class GamificationEngine {
   public clearFileHistory(fileName: string): void {
     if (this._fileErrorMinima.hasOwnProperty(fileName)) {
       delete this._fileErrorMinima[fileName];
+    }
+
+    if (this._filePreviousErrors.hasOwnProperty(fileName)) {
+      delete this._filePreviousErrors[fileName];
     }
   }
 }

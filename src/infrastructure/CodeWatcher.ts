@@ -14,7 +14,8 @@ export class CodeWatcher implements vscode.Disposable {
     private readonly onAnalysisComplete: (
       fileName: string,
       errorCount: number,
-      fixedFoodType?: FoodType,
+      fixedFoodTypes?: FoodType[],
+      fixedRuleIds?: string[],
       errorLines?: number[],
       currentViolations?: string[],
       errorDetails?: A11yErrorDetail[],
@@ -64,7 +65,8 @@ export class CodeWatcher implements vscode.Disposable {
           this.onAnalysisComplete(
             result.fileName,
             result.errorCount,
-            result.fixedFoodType,
+            result.fixedFoodTypes,
+            result.fixedRuleIds,
             result.errorLines,
             result.currentViolations,
             result.errorDetails,
@@ -122,7 +124,7 @@ export class CodeWatcher implements vscode.Disposable {
     }
 
     let fileText = document.getText();
-    const fileName = document.fileName.split(/[\\/]/).pop() || 'unknown';
+    const fileName = vscode.workspace.asRelativePath(document.uri, true);
 
     let lineOffset = 0;
     const isVue = document.languageId === 'vue';

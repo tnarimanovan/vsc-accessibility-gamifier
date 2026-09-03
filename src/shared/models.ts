@@ -19,8 +19,9 @@ export interface A11yErrorDetail {
 export interface WorkerAnalysisResult {
   fileName: string;
   errorCount: number;
-  fixedFoodType?: FoodType;
+  fixedFoodTypes?: FoodType[];
+  fixedRuleIds?: string[];
   errorLines?: number[];
-  rrorDetails?: A11yErrorDetail[];
+  errorDetails?: A11yErrorDetail[];
   currentViolations: string[];
 }

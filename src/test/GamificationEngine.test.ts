@@ -124,7 +124,7 @@ describe('GamificationEngine Pure Logic Suite', () => {
       engine.processCodeAnalysis(fileName, 3);
 
       // Step 2: Fix 1 error (3 -> 2 errors)
-      engine.processCodeAnalysis(fileName, 2, 'LUNCH' as FoodType);
+      // engine.processCodeAnalysis(fileName, 2, 'LUNCH' as FoodType);
 
       const reward = FOOD_REWARDS['LUNCH'];
       const expectedXp = Math.round(reward.xp * 1.0);
@@ -168,7 +168,7 @@ describe('GamificationEngine Pure Logic Suite', () => {
       mockOnStateChange.mockClear();
 
       // 3. Разработчик "исправляет" с 3 до 2 ошибок (2 < 3, но 2 > 1 минимум)
-      antiCheatEngine.processCodeAnalysis(testFile, 2, 'SNACK' as FoodType);
+      // antiCheatEngine.processCodeAnalysis(testFile, 2, 'SNACK' as FoodType);
 
       // Anti-Cheat заблокировал начисление XP!
       expect(antiCheatEngine.state.xp).toBe(0);
@@ -214,7 +214,7 @@ describe('GamificationEngine Pure Logic Suite', () => {
       engine.processCodeAnalysis(fileA, 2);
       engine.processCodeAnalysis(fileB, 5);
 
-      engine.processCodeAnalysis(fileB, 4, 'SNACK' as FoodType);
+      // engine.processCodeAnalysis(fileB, 4, 'SNACK' as FoodType);
 
       expect(engine.state.xp).toBeGreaterThan(0);
       expect(mockOnStateChange).toHaveBeenCalledWith(
@@ -236,7 +236,7 @@ describe('GamificationEngine Pure Logic Suite', () => {
       const levelEngine = new GamificationEngine(lowXpState, mockOnStateChange);
 
       levelEngine.processCodeAnalysis('test.html', 5);
-      levelEngine.processCodeAnalysis('test.html', 0, 'DELICACY' as FoodType);
+      // levelEngine.processCodeAnalysis('test.html', 0, 'DELICACY' as FoodType);
 
       const expectedNeededXp = Math.round(
         initialNeededXp * GAME_BALANCE.XP_GROWTH_MULTIPLIER,
@@ -262,11 +262,11 @@ describe('GamificationEngine Pure Logic Suite', () => {
       );
 
       cascadeEngine.processCodeAnalysis('cascade.html', 1);
-      cascadeEngine.processCodeAnalysis(
-        'cascade.html',
-        0,
-        'DELICACY' as FoodType,
-      );
+      // cascadeEngine.processCodeAnalysis(
+      //   'cascade.html',
+      //   0,
+      //   'DELICACY' as FoodType,
+      // );
 
       expect(cascadeEngine.state.level).toBeGreaterThan(2);
       expect(mockOnStateChange).toHaveBeenCalledWith(

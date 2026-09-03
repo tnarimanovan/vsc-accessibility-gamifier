@@ -43,14 +43,13 @@ process.on(
       // pipeline VUE: AST Analyzer -> Sanitize -> wrap
       // ---------------------------------------------------------
       if (isVue) {
-
         astVueErrors = analyzeVueAst(sourceCode, lineOffset);
         const sanitized = sanitizeVueTemplate(sourceCode);
         htmlToParse = `<!DOCTYPE html><html lang="en"><head><title>Audit</title></head><body><main>${sanitized}</main></body></html>`;
       }
 
       dom = new JSDOM(htmlToParse, {
-        runScripts: 'dangerously',
+        runScripts: 'outside-only',
         pretendToBeVisual: false,
         virtualConsole,
         includeNodeLocations: true,
@@ -151,16 +150,17 @@ process.on(
         new Set(uniqueDetails.map((d) => d.ruleId)),
       );
 
-      let fixedFoodType: FoodType | undefined = undefined;
-      if (currentViolations.length < previousViolations.length) {
-        const resolvedRuleId = previousViolations.find(
-          (id) => !currentViolations.includes(id),
-        );
+      const resolvedRuleIds = previousViolations.filter(
+        (id) => !currentViolations.includes(id),
+      );
 
+      const fixedFoodTypes: FoodType[] = [];
+
+      resolvedRuleIds.forEach((resolvedRuleId) => {
         if (resolvedRuleId) {
-          fixedFoodType = getFoodTypeForRule(resolvedRuleId);
+          fixedFoodTypes.push(getFoodTypeForRule(resolvedRuleId));
         }
-      }
+      });
 
       const response: WorkerAnalysisResult & {
         isParsingError?: boolean;
@@ -170,7 +170,8 @@ process.on(
       } = {
         fileName,
         errorCount: uniqueDetails.length,
-        fixedFoodType,
+        fixedFoodTypes,
+        fixedRuleIds: resolvedRuleIds,
         errorLines: allErrorLines,
         errorDetails: uniqueDetails,
         currentViolations,
@@ -191,7 +192,8 @@ process.on(
       } = {
         fileName,
         errorCount: previousViolations.length,
-        fixedFoodType: undefined,
+        fixedFoodTypes: undefined,
+        fixedRuleIds: [],
         errorLines: [],
         errorDetails: [],
         currentViolations: previousViolations,

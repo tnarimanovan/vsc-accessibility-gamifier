@@ -99,14 +99,21 @@ export class MoleStatusBar {
       color = new vscode.ThemeColor('statusBarItem.warningForeground');
     }
     // RULE 6: Standard idle flow with energy glow multipliers animations (Using your state.combo)
-    else if (this._lastState.combo && this._lastState.combo > 1.0) {
-      const sparkFrames = ['$(zap)', '$(sparkle)', '$(flame)'];
-      icon = sparkFrames[this._animationFrame % sparkFrames.length];
-      statusText = `Clean x${this._lastState.combo.toFixed(1)}`;
-    }
+    // else if (this._lastState.combo && this._lastState.combo > 1.0) {
+    //   const sparkFrames = ['$(zap)', '$(sparkle)', '$(flame)'];
+    //   icon = sparkFrames[this._animationFrame % sparkFrames.length];
+    //   statusText = `Clean x${this._lastState.combo.toFixed(1)}`;
+    // }
 
     this._statusBarItem.text = `🦫 Mole: ${icon} ${statusText}`;
     this._statusBarItem.color = color;
+
+    const comboText =
+      this._lastState.combo > 1.0
+        ? ` 🔥 x${this._lastState.combo.toFixed(1)}`
+        : '';
+
+    this._statusBarItem.text = `🦫 Mole: ${icon} ${statusText}${comboText}`;
 
     if (!this._isHovered) {
       this._statusBarItem.tooltip = this.createTooltip(this._lastState);

@@ -120,10 +120,7 @@ export function activate(context: vscode.ExtensionContext) {
             updatedState.xp = externalState.xp;
             updatedState.neededXp = externalState.neededXp;
 
-            engine.state.level = externalState.level;
-            engine.state.stage = externalState.stage;
-            engine.state.xp = externalState.xp;
-            engine.state.neededXp = externalState.neededXp;
+            engine.syncProgress(externalState);
             finalState = updatedState;
           }
         } catch (e) {
@@ -153,7 +150,7 @@ export function activate(context: vscode.ExtensionContext) {
   async function handleExportReport() {
     const activeEditor = vscode.window.activeTextEditor;
     const currentFileName = activeEditor
-      ? activeEditor.document.fileName.split(/[\\/]/).pop() || ''
+      ? vscode.workspace.asRelativePath(activeEditor.document.uri, true)
       : lastAnalyzedFileName;
 
     const currentViolations =
@@ -174,7 +171,7 @@ export function activate(context: vscode.ExtensionContext) {
       sessionStartTime,
       initialHealthScore,
       finalHealthScore,
-      totalXpEarned: engine.state.xp || 0,
+      totalXpEarned: engine.sessionXpEarned,
       unlockedBadges,
       initialViolationsCount,
       remainingViolationsCount,
@@ -214,8 +211,10 @@ export function activate(context: vscode.ExtensionContext) {
     const activeEditor = vscode.window.activeTextEditor;
     if (!activeEditor) return;
 
-    const currentFileName =
-      activeEditor.document.fileName.split(/[\\/]/).pop() || 'unknown';
+    const currentFileName = vscode.workspace.asRelativePath(
+      activeEditor.document.uri,
+      true,
+    );
     const config = vscode.workspace.getConfiguration('accessibilityMole');
     const isHighlightingEnabled = config.get<boolean>(
       'enableCodeHighlighting',
@@ -246,7 +245,8 @@ export function activate(context: vscode.ExtensionContext) {
     (
       fileName,
       errorCount,
-      fixedFoodType,
+      fixedFoodTypes,
+      fixedRuleIds,
       errorLines,
       currentViolations,
       errorDetails,
@@ -269,7 +269,7 @@ export function activate(context: vscode.ExtensionContext) {
         cache[fileName] = currentViolations || [];
         context.workspaceState.update('violationCache', cache);
 
-        engine.processCodeAnalysis(fileName, errorCount, fixedFoodType);
+        engine.processCodeAnalysis(fileName, errorCount, fixedFoodTypes);
 
         const cleanLines = errorLines || [];
         const cleanDetails = errorDetails || [];
@@ -290,8 +290,10 @@ export function activate(context: vscode.ExtensionContext) {
           isInitialMetricsCaptured = true;
         }
 
-        if (fixedFoodType) {
-          fixedRulesSet.add(fixedFoodType);
+        if (fixedRuleIds?.length) {
+          fixedRuleIds.forEach((ruleId) => {
+            fixedRulesSet.add(ruleId);
+          });
         }
 
         triggerCodeHighlighting();
@@ -305,7 +307,7 @@ export function activate(context: vscode.ExtensionContext) {
           }
         }
 
-        if (activePanel && activePanel.isVisible()) {
+        if (activePanel) {
           syncPanelDiagnostics(fileName, cleanLines, cleanDetails);
         }
       } catch (error) {
@@ -363,8 +365,8 @@ export function activate(context: vscode.ExtensionContext) {
       if (!isEditorFocused) return;
 
       if (!editor) {
-        engine.processCodeAnalysis('none', 0, undefined);
-        statusBar.update(engine.state);
+        // engine.processCodeAnalysis('none', 0, undefined);
+        // statusBar.update(engine.state);
         return;
       }
 
@@ -373,24 +375,19 @@ export function activate(context: vscode.ExtensionContext) {
 
       if (!supportedLanguages.includes(currentLanguageId)) {
         editor.setDecorations(errorLineDecorationType, []);
-        const fallbackName =
-          editor.document.fileName.split(/[\\/]/).pop() || 'unknown';
-        engine.processCodeAnalysis(fallbackName, 0, undefined);
-        statusBar.update(engine.state);
+        const fallbackName = vscode.workspace.asRelativePath(editor.document.uri, true)
+        engine.syncActiveFile(fallbackName, 0);
         return;
       }
 
       editor.setDecorations(errorLineDecorationType, []);
 
       if (editor.document.lineCount > 3000) {
-        const giantFileName =
-          editor.document.fileName.split(/[\\/]/).pop() || 'unknown';
-        engine.processCodeAnalysis(
-          `${giantFileName} (Too Deep!)`,
-          0,
-          undefined,
+        const giantFileName = vscode.workspace.asRelativePath(
+          editor.document.uri,
+          true,
         );
-        statusBar.update(engine.state);
+        engine.syncActiveFile(`${giantFileName} (Too Deep!)`, 0);
         vscode.window.showWarningMessage(
           `File too deep (${editor.document.lineCount} lines)! Core analysis skipped to save CPU.`,
         );
@@ -398,19 +395,16 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       triggerCodeHighlighting();
-      const currentFileName =
-        editor.document.fileName.split(/[\\/]/).pop() || 'unknown';
+      const currentFileName = vscode.workspace.asRelativePath(
+        editor.document.uri,
+        true,
+      );
       const cachedFileLines = errorsByFileCache[currentFileName] || [];
       const cachedFileDetails = errorDetailsByFileCache[currentFileName] || [];
 
       updateNativeDiagnostics(editor.document, cachedFileDetails);
 
-      engine.processCodeAnalysis(
-        currentFileName,
-        cachedFileLines.length,
-        undefined,
-      );
-      statusBar.update(engine.state);
+      engine.syncActiveFile(currentFileName, cachedFileDetails.length);
 
       if (activePanel) {
         activePanel.updateGameState(engine.state);
@@ -447,14 +441,34 @@ export function activate(context: vscode.ExtensionContext) {
     activePanel.updateGameState(engine.state);
     const activeEditor = vscode.window.activeTextEditor;
     if (activeEditor) {
-      const currentFileName =
-        activeEditor.document.fileName.split(/[\\/]/).pop() || 'unknown';
+      const currentFileName = vscode.workspace.asRelativePath(
+        activeEditor.document.uri,
+        true,
+      );
       syncPanelDiagnostics(
         currentFileName,
         errorsByFileCache[currentFileName] || [],
         errorDetailsByFileCache[currentFileName] || [],
       );
     }
+  };
+
+  const syncLastAnalysisToPanel = () => {
+    if (!activePanel) return;
+
+    activePanel.updateGameState(engine.state);
+
+    if (lastAnalyzedFileName === 'none') {
+      return;
+    }
+
+    syncPanelDiagnostics(
+      lastAnalyzedFileName,
+      errorsByFileCache[lastAnalyzedFileName] || [],
+      errorDetailsByFileCache[lastAnalyzedFileName] ||
+        lastAnalyzedErrorDetails ||
+        [],
+    );
   };
 
   const openBurrowCommand = vscode.commands.registerCommand(
@@ -468,7 +482,7 @@ export function activate(context: vscode.ExtensionContext) {
           () => {
             activePanel = undefined;
           },
-          undefined,
+          syncLastAnalysisToPanel,
           (message: any) => {
             if (
               message.command === 'exportReport' ||
@@ -478,7 +492,6 @@ export function activate(context: vscode.ExtensionContext) {
             }
           },
         );
-        forceSyncData();
       }
     },
   );
@@ -500,7 +513,7 @@ export function activate(context: vscode.ExtensionContext) {
           () => {
             activePanel = undefined;
           },
-          undefined,
+          syncLastAnalysisToPanel,
           (message: any) => {
             if (
               message.command === 'exportReport' ||
@@ -510,15 +523,14 @@ export function activate(context: vscode.ExtensionContext) {
             }
           },
         );
-        forceSyncData();
       },
     });
   }
 
   const closeListener = vscode.workspace.onDidCloseTextDocument((document) => {
-    const fileName = document.fileName.split(/[\\/]/).pop();
+    const fileName = vscode.workspace.asRelativePath(document.uri, true)
     if (fileName) {
-      engine.clearFileHistory(fileName);
+      // engine.clearFileHistory(fileName);
       if (errorsByFileCache.hasOwnProperty(fileName)) {
         delete errorsByFileCache[fileName];
       }
