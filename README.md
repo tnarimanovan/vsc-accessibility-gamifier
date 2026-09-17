@@ -49,7 +49,17 @@ https://github.com/user-attachments/assets/75e28a50-47d6-40a6-b67e-540541a5face
 1. After installation, open any project containing HTML, Vue files.
 2. Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`).
 3. Type and run: **`Mole's Burrow: Open Burrow`**.
-4. Start fixing accessibility errors in your active file and save changes — the mole will automatically track your progress, gain XP, and evolve!
+4. Open an HTML or Vue file and start working on your code.
+5. Save the file (Cmd+S / Ctrl+S) to trigger an accessibility analysis.
+6. Review the detected accessibility issues in the Mole's Burrow panel, fix them, and save the file again to re-run the analysis and update your score, XP, combo, and achievements.
+
+[!IMPORTANT]
+Mole's Burrow analyzes your code when the file is saved.
+Changes are not evaluated while you are typing. After making accessibility fixes, save the file (Cmd+S / Ctrl+S) to refresh the analysis and see your updated progress.
+
+🔄 Typical Workflow
+
+Edit code → Save file → Review accessibility feedback → Fix issues → Save again → See your progress
 
 ---
 
